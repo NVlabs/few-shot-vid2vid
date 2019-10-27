@@ -1,0 +1,6 @@
+@inproceedings{wang2018fewshotvid2vid,
+   author    = {Ting-Chun Wang and Ming-Yu Liu and Andrew Tao and Guilin Liu and Jan Kautz and Bryan Catanzaro},
+   title     = {Few-shot Video-to-Video Synthesis},
+   booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},   
+   year      = {2019},
+}

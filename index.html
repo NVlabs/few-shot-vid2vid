@@ -1,0 +1,158 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3c.org/TR/1999/REC-html401-19991224/loose.dtd">
+<html xml:lang="en" xmlns="http://www.w3.org/1999/xhtml" lang="en"><head>
+  <title>Few-shot Video-to-Video Synthesis</title>
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+
+<meta property="og:image" content="https://nvlabs.github.io/few-shot-vid2vid/web_gifs/illustration.gif"/>
+<meta property="og:title" content="Few-shot Video-to-Video Synthesis" />
+
+<script src="lib.js" type="text/javascript"></script>
+<script src="popup.js" type="text/javascript"></script>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-53682931-1', 'auto');
+  ga('send', 'pageview');
+
+</script>
+
+<script type="text/javascript">
+// redefining default features
+var _POPUP_FEATURES = 'width=500,height=300,resizable=1,scrollbars=1,titlebar=1,status=1';
+</script>
+<link media="all" href="glab.css" type="text/css" rel="StyleSheet">
+<style type="text/css" media="all">
+IMG {
+	PADDING-RIGHT: 0px;
+	PADDING-LEFT: 0px;
+	FLOAT: right;
+	PADDING-BOTTOM: 0px;
+	PADDING-TOP: 0px
+}
+#primarycontent {
+	MARGIN-LEFT: auto; ; WIDTH: expression(document.body.clientWidth >
+1150? "1150px": "auto" ); MARGIN-RIGHT: auto; TEXT-ALIGN: left; max-width:
+1150px }
+BODY {
+	TEXT-ALIGN: center
+}
+</style>
+
+<meta content="MSHTML 6.00.2800.1400" name="GENERATOR"><script src="b5m.js" id="b5mmain" type="text/javascript"></script></head>
+
+<body>
+
+<div id="primarycontent">
+<center><h1>Few-shot Video-to-Video Synthesis</h1></center>
+<center><h2>
+  <a href="https://tcwang0509.github.io/">Ting-Chun Wang</a>&nbsp;&nbsp;
+  <a href="http://mingyuliu.net/">Ming-Yu Liu&nbsp;&nbsp;  
+    <a href="https://www.linkedin.com/in/andrew-tao-6b6369/?trk=public-profile-join-page">Andrew Tao</a>&nbsp;&nbsp;
+  <a href="https://liuguilin1225.github.io/">Guilin Liu</a>&nbsp;&nbsp;  
+  <a href="http://jankautz.com/">Jan Kautz</a>&nbsp;&nbsp;
+  <a href="http://catanzaro.name/">Bryan Catanzaro</a></center>
+  
+<center><h2>NVIDIA Corporation</h2></center>
+
+<center><h2><strong> 
+<a href="main.pdf">[Paper]</a>
+<a href="https://arxiv.org/">[arXiv]</a>
+<a href="https://youtu.be/8AZBuyEuDqc">[Video]</a>
+<a href="https://github.com/NVlabs/few-shot-vid2vid">[Code]</a>
+</strong> </h2></center>
+<center><a href="images/teaser.gif">
+<img style="PADDING-LEFT: 220px; PADDING-RIGHT: 220px;" src="web_gifs/illustration.gif" width="720"> </a></center>
+
+<h2>Abstract</h2>
+<div style="font-size:14px"><p>Video-to-video synthesis (vid2vid) aims at converting an input semantic video, such as videos of human poses or segmentation masks, to an output photorealistic video. While the state-of-the-art of vid2vid has advanced significantly, existing approaches share two major limitations. First, they are data-hungry. Numerous images of a target human subject or a scene are required for training. Second, a learned model has limited generalization capability. A pose-to-human vid2vid model can only synthesize poses of the single person in the training set. It does not generalize to other humans that are not in the training set. To address the limitations, we propose a few-shot vid2vid framework, which learns to synthesize videos of previously unseen subjects or scenes by leveraging few example images of the target at test time. Our model achieves this few-shot generalization capability via a novel network weight generation module utilizing an attention mechanism. We conduct extensive experimental validations with comparisons to strong baselines using several large-scale video datasets including human-dancing videos, talking-head videos, and street-scene videos. The experimental results verify the effectiveness of the proposed framework in addressing the two limitations of existing vid2vid approaches.</p></div>
+
+<a href="https://arxiv.org/"><img style="float: left; padding: 10px; PADDING-RIGHT: 30px;" alt="paper thumbnail" src="images/paper_thumbnail.jpg" width=170></a>
+<br>
+
+<h2>Paper</h2>
+<p><a href="https://arxiv.org/">arXiv</a>,  2019. </p>
+
+
+
+<h2>Citation</h2>
+<p>Ting-Chun Wang, Ming-Yu Liu, Andrew Tao, Guilin Liu, Jan Kautz, and Bryan Catanzaro. "Few-shot Video-to-Video Synthesis", in NeurIPS, 2019.
+<a href="Bibtex.txt">Bibtex</a>
+
+</p>
+
+
+<h2>Code: <a href="https://github.com/NVlabs/few-shot-vid2vid">Pytorch</a></h2>
+<br>
+
+<h1 align='center'>Our Example Results</h1>
+<table align="center" border="0" cellspacing="0" cellpadding="0">
+    <tr>
+    <td align="center" valign="middle">
+    <p> <iframe width="1024" height="575" src="https://www.youtube.com/embed/8AZBuyEuDqc" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe></p>
+   </td>
+    </tr>
+</table>
+<p>&nbsp;</p>
+
+
+<h1 align='center'>Human Dancing Videos</h1>
+<table border="0" cellspacing="10" cellpadding="0">
+  <tr>
+    <td align="center" valign="middle">
+    <p> <iframe width="560" height="315" src="https://www.youtube.com/embed/Rt8bfTUE49g" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe></p>
+   </td>
+   <td align="center" valign="middle">
+    <p> <iframe width="560" height="315" src="https://www.youtube.com/embed/kkA6CHRovKA" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe></p>
+   </td>
+    </tr>  
+</table>
+<p>&nbsp;</p>
+
+
+<h1 align='center'>Talking Head Videos</h1>
+<table border="0" cellspacing="10" cellpadding="0">
+  <tr>
+    <td align="center" valign="middle">
+    <p> <iframe width="560" height="315" src="https://www.youtube.com/embed/XGbngsmVo_0" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe></p>
+   </td>
+   <td align="center" valign="middle">
+    <p> <iframe width="560" height="315" src="https://www.youtube.com/embed/APoB1u3kTOU" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe></p>
+   </td>
+    </tr>  
+</table>
+<p>&nbsp;</p>
+
+
+<h1 align='center'>Street View Videos</h1>
+<p> <div style="text-align: center;"><iframe width="560" height="315" src="https://www.youtube.com/embed/9qUkFM0eS-g" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe></div></p><p>&nbsp;</p>
+
+
+<br>
+<h2>Acknowledgement</h2>
+<p>We thank Karan Sapra for generating the segmentation maps for us.</p>
+
+<h2>Citation</h2>
+<p>If you find this useful for your research, please use the following.<br>
+@inproceedings{wang2019fewshotvid2vid,<br>
+  &emsp;&emsp;title={Few-shot Video-to-Video Synthesis},<br>
+  &emsp;&emsp;author={Ting-Chun Wang and Ming-Yu Liu and Andrew Tao and Guilin Liu and Jan Kautz and Bryan Catanzaro}, <br>
+  &emsp;&emsp;booktitle={Advances in Neural Information Processing Systems (NeurIPS)}, <br>
+  &emsp;&emsp;year={2019} <br>
+}</p>
+
+<div style="display:none">
+<!-- GoStats JavaScript Based Code -->
+<script type="text/javascript" src="http://gostats.com/js/counter.js"></script>
+<script type="text/javascript">_gos='c3.gostats.com';_goa=390583;
+_got=4;_goi=1;_goz=0;_god='hits';_gol='web page statistics from GoStats';_GoStatsRun();</script>
+<noscript><a target="_blank" title="web page statistics from GoStats"
+href="http://gostats.com"><img alt="web page statistics from GoStats"
+src="http://c3.gostats.com/bin/count/a_390583/t_4/i_1/z_0/show_hits/counter.png"
+style="border-width:0" /></a></noscript>
+</div>
+<!-- End GoStats JavaScript Based Code -->
+</body></html
+>
