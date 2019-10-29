@@ -3,7 +3,7 @@
 <br><br><br><br>
 
 # Few-shot vid2vid
-### [Project](https://nvlabs.github.io/few-shot-vid2vid/) | [YouTube](https://youtu.be/8AZBuyEuDqc) | [arXiv](https://arxiv.org/)
+### [Project](https://nvlabs.github.io/few-shot-vid2vid/) | [YouTube](https://youtu.be/8AZBuyEuDqc) | [arXiv](https://arxiv.org/abs/1910.12713)
 
 Pytorch implementation for few-shot photorealistic video-to-video translation. It can be used for generating human motions from poses, synthesizing people talking from edge maps, or turning semantic label maps into photo-realistic videos. The core of video-to-video translation is image-to-image translation. Some of our work in that space can be found in [pix2pixHD](https://github.com/NVIDIA/pix2pixHD) and [SPADE](https://github.com/NVlabs/SPADE). <br><br>
 [Few-shot Video-to-Video Synthesis](https://nvlabs.github.io/few-shot-vid2vid/)  
