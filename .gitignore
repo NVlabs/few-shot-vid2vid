@@ -6,6 +6,7 @@ models/networks/flownet2*/networks/*/*egg-info
 models/networks/flownet2*/networks/*/build
 models/networks/flownet2*/networks/*/__pycache__
 models/networks/flownet2*/networks/*/dist
+models/networks/flownet2*/*.pth.tar
 results/
 build/
 */Thumbs.db
