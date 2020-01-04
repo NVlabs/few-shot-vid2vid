@@ -9,6 +9,7 @@ models/networks/flownet2*/networks/*/dist
 models/networks/flownet2*/*.pth.tar
 results/
 build/
+.idea/
 */Thumbs.db
 */**/__pycache__
 */*.pyc

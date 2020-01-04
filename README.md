@@ -11,6 +11,12 @@ Pytorch implementation for few-shot photorealistic video-to-video translation. I
  NVIDIA Corporation  
  In Neural Information Processing Systems (**NeurIPS**) 2019  
 
+## License
+Copyright (C) 2019 NVIDIA Corporation. All rights reserved. 
+
+This work is made available under the Nvidia Source Code License (1-Way Commercial). To view a copy of this license, visit https://nvlabs.github.io/few-shot-vid2vid/License.txt
+
+
 ## Example Results
 - Dance Videos
 <p align='center'>

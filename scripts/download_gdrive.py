@@ -1,3 +1,10 @@
+# Copyright (c) 2019, NVIDIA Corporation. All rights reserved.
+#
+# This work is made available
+# under the Nvidia Source Code License (1-way Commercial).
+# To view a copy of this license, visit
+# https://nvlabs.github.io/few-shot-vid2vid/License.txt
+
 # Download code taken from Code taken from https://stackoverflow.com questions/25010369/wget-curl-large-file-from-google-drive/39225039#39225039
 import requests, zipfile, os
 def download_file_from_google_drive(id, destination):
