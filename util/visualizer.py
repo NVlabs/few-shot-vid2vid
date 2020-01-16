@@ -10,7 +10,7 @@ import ntpath
 import time
 import glob
 import scipy.misc
-from io import BytesIO
+from io import BytesIO, StringIO
 from util import util
 from util import html
 from util.distributed import master_only_print as print
