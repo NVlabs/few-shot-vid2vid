@@ -114,7 +114,7 @@ class FewshotFaceDataset(BaseDataset):
             crop_coords = self.get_crop_coords(points)   
             if not opt.isTrain: 
                 if self.fix_crop_pos: self.crop_coords = crop_coords
-                else: self.crop_size = B_img.size
+                else: self.crop_size = ref_img.size
             self.bw = max(1, (crop_coords[1]-crop_coords[0]) // 256)
 
             # get keypoints for all frames
