@@ -20,8 +20,8 @@ class FaceRefineModel(BaseModel):
     def refine_face_region(self, netGf, label_valid, fake_image, label, ref_label_valid, ref_image, ref_label):        
         label_face, fake_face_coarse = self.crop_face_region([label_valid, fake_image], label, crop_smaller=4)
         ref_label_face, ref_image_face = self.crop_face_region([ref_label_valid, ref_image], ref_label, crop_smaller=4)
-        fake_face = netGf(label_face, ref_label_face.unsqueeze(1), ref_image_face.unsqueeze(1), img_coarse=fake_face_coarse)
-        fake_image = self.replace_face_region(fake_image, fake_face, label, fake_face_coarse, crop_smaller=4)
+        fake_face = netGf(label_face, ref_label_face.unsqueeze(1), ref_image_face.unsqueeze(1), img_coarse=fake_face_coarse.detach())
+        fake_image = self.replace_face_region(fake_image, fake_face, label, fake_face_coarse.detach(), crop_smaller=4)
         return fake_image
 
     ### crop out the face region of the image (and resize if necessary to feed into generator/discriminator)

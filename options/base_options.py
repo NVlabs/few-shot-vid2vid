@@ -50,8 +50,10 @@ class BaseOptions():
         parser.add_argument('--n_downsample_G', type=int, default=5, help='# of downsamplings in netG')        
         parser.add_argument('--ngf', type=int, default=32, help='# of gen filters in first conv layer')
         parser.add_argument('--norm_G', type=str, default='spectralspadesyncbatch', help='instance normalization or batch normalization')
-        parser.add_argument('--ks', type=int, default=1, help='filter size for convolution in SPADE')
-        parser.add_argument('--netS', type=str, default='encoderdecoder', help='selects model to use for the label embedding network')                
+        parser.add_argument('--conv_ks', type=int, default=3, help='filter size for convolution in main branch')
+        parser.add_argument('--embed_ks', type=int, default=1, help='filter size for convolution in embedding network')
+        parser.add_argument('--spade_ks', type=int, default=1, help='filter size for convolution in SPADE')
+        parser.add_argument('--netS', type=str, default='encoderdecoder', help='selects model to use for the label embedding network')
         
         # for reference image encoder        
         parser.add_argument('--use_label_ref', type=str, default='mul', help='how to use the reference label: concat | mul')
@@ -74,8 +76,10 @@ class BaseOptions():
         parser.add_argument('--norm_F', type=str, default='spectralsyncbatch', help='instance normalization or batch normalization')
         parser.add_argument('--flow_multiplier', type=int, default=20, help='flow output multiplier')
         parser.add_argument('--flow_deconv', action='store_true', help='use deconvolution for flow generation')
+
         parser.add_argument('--spade_combine', action='store_true', help='use SPADE to combine with warped image instead of linear combination')
-        parser.add_argument('--n_sc_layers', type=int, default=3, help='number of layers to use SPADE combination in netG')
+        parser.add_argument('--n_sc_layers', type=int, default=2, help='number of layers to use SPADE combination in netG')        
+        parser.add_argument('--sc_arch', type=str, default='encoder', help='selects model to use for the image embedding network')
 
         # for attention mechanism
         parser.add_argument('--n_shot', type=int, default=1, help='how many reference images')

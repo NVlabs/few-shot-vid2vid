@@ -198,9 +198,8 @@ class Vid2VidModel(BaseModel):
 
     def finetune(self, ref_labels, ref_images):
         train_names = ['fc', 'conv_img', 'up']        
-        params, _ = self.get_train_params(self.netG, train_names) 
-        if self.refine_face: params += list(self.netGf.parameters())
-        self.optimizer_G = self.get_optimizer(params, for_discriminator=False)
+        params, _ = self.get_train_params(self.netG, train_names)         
+        self.optimizer_G = self.get_optimizer(params, for_discriminator=False)        
         
         update_D = True
         if update_D:

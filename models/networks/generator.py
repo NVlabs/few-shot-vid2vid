@@ -27,7 +27,9 @@ class FewShotGenerator(BaseNetwork):
                 
         ### SPADE          
         self.norm = norm = opt.norm_G
-        self.ks = ks = opt.ks                   # conv kernel size in SPADE
+        self.conv_ks = conv_ks = opt.conv_ks    # conv kernel size in main branch
+        self.embed_ks = embed_ks = opt.embed_ks # conv kernel size in embedding network
+        self.spade_ks = spade_ks = opt.spade_ks # conv kernel size in SPADE
         self.spade_combine = opt.spade_combine  # combine ref/prev frames with current using SPADE
         self.n_sc_layers = opt.n_sc_layers      # number of layers to perform spade combine        
         ch_hidden = []                          # hidden channel size in SPADE module
@@ -73,21 +75,23 @@ class FewShotGenerator(BaseNetwork):
         if self.adap_spade or self.adap_conv:
             for i in range(self.n_adaptive_layers):
                 ch_in, ch_out = ch[i], ch[i+1]
-                ks2 = ks**2
+                conv_ks2 = conv_ks**2
+                embed_ks2 = embed_ks**2
+                spade_ks2 = spade_ks**2
                 ch_h = ch_hidden[i][0]
 
                 fc_names, fc_outs = [], []
                 if self.adap_spade:                    
-                    fc0_out = fcs_out = (ch_h * ks2 + 1) * 2
-                    fc1_out = (ch_h * ks2 + 1) * (1 if ch_in != ch_out else 2)
+                    fc0_out = fcs_out = (ch_h * spade_ks2 + 1) * 2
+                    fc1_out = (ch_h * spade_ks2 + 1) * (1 if ch_in != ch_out else 2)
                     fc_names += ['fc_spade_0', 'fc_spade_1', 'fc_spade_s']
                     fc_outs += [fc0_out, fc1_out, fcs_out]
                     if self.adap_embed:                        
                         fc_names += ['fc_spade_e']
-                        fc_outs += [ch_in * ks2 + 1]
+                        fc_outs += [ch_in * embed_ks2 + 1]
                 if self.adap_conv:
-                    fc0_out = ch_out * ks2 + 1
-                    fc1_out = ch_in * ks2 + 1
+                    fc0_out = ch_out * conv_ks2 + 1
+                    fc1_out = ch_in * conv_ks2 + 1
                     fcs_out = ch_out + 1
                     fc_names += ['fc_conv_0', 'fc_conv_1', 'fc_conv_s']
                     fc_outs += [fc0_out, fc1_out, fcs_out]
@@ -106,7 +110,8 @@ class FewShotGenerator(BaseNetwork):
             
         ### main branch layers
         for i in reversed(range(n_downsample_G + 1)):
-            setattr(self, 'up_%d' % i, SPADEResnetBlock(ch[i+1], ch[i], norm=norm, hidden_nc=ch_hidden[i], ks=ks,
+            setattr(self, 'up_%d' % i, SPADEResnetBlock(ch[i+1], ch[i], norm=norm, hidden_nc=ch_hidden[i], 
+                    conv_ks=conv_ks, spade_ks=spade_ks,
                     conv_params_free=(self.adap_conv and i < self.n_adaptive_layers),
                     norm_params_free=(self.adap_spade and i < self.n_adaptive_layers)))
                    
@@ -139,18 +144,19 @@ class FewShotGenerator(BaseNetwork):
         if self.warp_ref:
             self.flow_network_ref = FlowGenerator(opt, 2)
             if self.spade_combine:            
-                self.img_warp_embedding = LabelEmbedder(opt, opt.output_nc + 1, 'encoder')    
+                self.img_ref_embedding = LabelEmbedder(opt, opt.output_nc + 1, opt.sc_arch)
 
     ### when starting training multiple frames, initialize the flow network
     def set_flow_prev(self):        
         opt = self.opt
         self.warp_prev = True
         self.flow_network_temp = FlowGenerator(opt, opt.n_frames_G)
+        if self.spade_combine:
+            self.img_prev_embedding = LabelEmbedder(opt, opt.output_nc + 1, opt.sc_arch)
         if self.warp_ref:
             self.load_pretrained_net(self.flow_network_ref, self.flow_network_temp)
+            if self.spade_combine: self.load_pretrained_net(self.img_ref_embedding, self.img_prev_embedding)
             self.flow_temp_is_initalized = True
-        elif self.spade_combine:
-            self.img_warp_embedding = LabelEmbedder(opt, opt.output_nc + 1, 'encoder')
 
     def forward(self, label, label_refs, img_refs, prev=[None, None], t=0, img_coarse=None):
         ### for face refinement
@@ -168,7 +174,7 @@ class FewShotGenerator(BaseNetwork):
         flow, weight, img_warp, ds_ref = self.flow_generation(label, label_ref, img_ref, label_prev, img_prev, has_prev)
 
         weight_ref, weight_prev = weight
-        img_ref_warp, img_prev_warp = img_warp
+        img_ref_warp, img_prev_warp = img_warp        
         encoded_label = self.SPADE_combine(encoded_label, ds_ref)        
         
         ### main branch convolution layers
@@ -221,7 +227,7 @@ class FewShotGenerator(BaseNetwork):
 
         ch_in, ch_out = self.ch[i], self.ch[i+1]
         ch_h = self.ch_hidden[i][0]
-        ks, ks2 = self.ks, self.ks ** 2
+        eks, sks = self.embed_ks, self.spade_ks
 
         b = x.size()[0]
         x = self.reshape_embed_input(x)
@@ -230,15 +236,15 @@ class FewShotGenerator(BaseNetwork):
         embedding_weights = None
         if self.adap_embed:
             fc_e = getattr(self, 'fc_spade_e_'+str(i))(x).view(b, -1)
-            embedding_weights = self.reshape_weight(fc_e, [ch_out, ch_in, ks, ks])
+            embedding_weights = self.reshape_weight(fc_e, [ch_out, ch_in, eks, eks])
 
         # weights for the 3 layers in SPADE module: conv_0, conv_1, and shortcut
         fc_0 = getattr(self, 'fc_spade_0_'+str(i))(x).view(b, -1)
         fc_1 = getattr(self, 'fc_spade_1_'+str(i))(x).view(b, -1)
         fc_s = getattr(self, 'fc_spade_s_'+str(i))(x).view(b, -1)
-        weight_0 = self.reshape_weight(fc_0, [[ch_out, ch_h, ks, ks]]*2)
-        weight_1 = self.reshape_weight(fc_1, [[ch_in, ch_h, ks, ks]]*2)
-        weight_s = self.reshape_weight(fc_s, [[ch_out, ch_h, ks, ks]]*2)
+        weight_0 = self.reshape_weight(fc_0, [[ch_out, ch_h, sks, sks]]*2)
+        weight_1 = self.reshape_weight(fc_1, [[ch_in, ch_h, sks, sks]]*2)
+        weight_s = self.reshape_weight(fc_s, [[ch_out, ch_h, sks, sks]]*2)
         norm_weights = [weight_0, weight_1, weight_s]
         
         return embedding_weights, norm_weights
@@ -424,8 +430,9 @@ class FewShotGenerator(BaseNetwork):
 
     ### if using SPADE for combination
     def SPADE_combine(self, encoded_label, ds_ref):        
-        if self.spade_combine:
-            encoded_image_warp = [self.img_warp_embedding(d) for d in ds_ref]            
+        if self.spade_combine:            
+            encoded_image_warp = [self.img_ref_embedding(ds_ref[0]), 
+                                  self.img_prev_embedding(ds_ref[1]) if ds_ref[1] is not None else None]
             for i in range(self.n_sc_layers):
                 encoded_label[i] = [encoded_label[i]] + [w[i] if w is not None else None for w in encoded_image_warp]
         return encoded_label

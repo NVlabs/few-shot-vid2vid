@@ -30,7 +30,7 @@ class FewshotFaceDataset(BaseDataset):
 
     def initialize(self, opt):
         self.opt = opt
-        root = opt.dataroot        
+        root = opt.dataroot
 
         if opt.isTrain:            
             self.L_paths = sorted(make_grouped_dataset(path.join(root, 'train_keypoints'))) 
@@ -84,8 +84,8 @@ class FewshotFaceDataset(BaseDataset):
         Lr, Ir = self.Lr, self.Ir
         if is_first_frame:           
             # get crop coordinates and stroke width
-            points = self.read_data(ref_L_paths[ref_indices[0]], data_type='np')            
-            ref_crop_coords = self.get_crop_coords(points)
+            keypoints = self.read_data(ref_L_paths[ref_indices[0]], data_type='np')            
+            ref_crop_coords = self.get_crop_coords(keypoints, for_ref=True)
             self.bw = max(1, (ref_crop_coords[1]-ref_crop_coords[0]) // 256)
 
             # get keypoints for all reference frames
@@ -106,25 +106,25 @@ class FewshotFaceDataset(BaseDataset):
         ### read in target images  
         if is_first_frame:
             # get crop coordinates
-            points = self.read_data(L_paths[start_idx], data_type='np')
-            crop_coords = self.get_crop_coords(points)   
+            keypoints = self.read_data(L_paths[start_idx], data_type='np')
+            crop_coords = self.get_crop_coords(keypoints)   
             if not opt.isTrain: 
                 if self.fix_crop_pos: self.crop_coords = crop_coords
-                else: self.crop_size = B_img.size
+                else: self.crop_size = crop_coords[1] - crop_coords[0], crop_coords[3] - crop_coords[2]
             self.bw = max(1, (crop_coords[1]-crop_coords[0]) // 256)
 
             # get keypoints for all frames
             end_idx = (start_idx + n_frames_total * t_step) if opt.isTrain else (start_idx + opt.how_many)
-            L_paths = L_paths[start_idx : end_idx : t_step] 
-            crop_coords = crop_coords if self.fix_crop_pos else None
-            all_keypoints = self.read_all_keypoints(L_paths, crop_coords, is_ref=False)        
+            L_paths = L_paths[start_idx : end_idx : t_step]             
+            all_keypoints = self.read_all_keypoints(L_paths, crop_coords if self.fix_crop_pos else None, is_ref=False)        
             if not opt.isTrain: self.all_keypoints = all_keypoints
         else:
             # use same crop coordinates as previous frames
             if self.fix_crop_pos:
                 crop_coords = self.crop_coords
             else:                
-                crop_coords = self.get_crop_coords(points, self.crop_size)
+                keypoints = self.read_data(L_paths[start_idx], data_type='np')
+                crop_coords = self.get_crop_coords(keypoints, self.crop_size)
             all_keypoints = self.all_keypoints
 
         L, I = self.L, self.I
@@ -187,16 +187,31 @@ class FewshotFaceDataset(BaseDataset):
 
         return keypoints
 
-    def get_crop_coords(self, keypoints):           
+    def get_crop_coords(self, keypoints, crop_size=None, for_ref=False):           
         min_y, max_y = int(keypoints[:,1].min()), int(keypoints[:,1].max())
         min_x, max_x = int(keypoints[:,0].min()), int(keypoints[:,0].max())
         x_cen, y_cen = (min_x + max_x) // 2, (min_y + max_y) // 2                
-                
         w = h = (max_x - min_x)
+        if crop_size is not None:
+            h, w = crop_size[0] / 2, crop_size[1] / 2
+        if self.opt.isTrain and self.fix_crop_pos:
+            offset_max = 0.2
+            offset = [np.random.uniform(-offset_max, offset_max), 
+                      np.random.uniform(-offset_max, offset_max)]
+            if for_ref:
+                scale_max = 0.2
+                self.scale = [np.random.uniform(1 - scale_max, 1 + scale_max), 
+                              np.random.uniform(1 - scale_max, 1 + scale_max)]                
+            w *= self.scale[0]
+            h *= self.scale[1]
+            x_cen += int(offset[0]*w)
+            y_cen += int(offset[1]*h)
+                        
         min_x = x_cen - w
-        min_y = y_cen - w*1.25
-        max_x = min_x + w*2
+        min_y = y_cen - h*1.25
+        max_x = min_x + w*2        
         max_y = min_y + h*2
+
         return int(min_y), int(max_y), int(min_x), int(max_x)
 
     def normalize_faces(self, all_keypoints, is_ref=False):        

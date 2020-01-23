@@ -156,7 +156,7 @@ class BaseModel(torch.nn.Module):
                     module = getattr(module, k)
                 params += [module]
                 train_list.add('.'.join(key_list[:1]))
-        print('training layers: ', train_list)
+        Visualizer.vis_print(self.opt, 'training layers: ', train_list)
         return params, train_list
 
     def define_networks(self, start_epoch):
@@ -191,7 +191,7 @@ class BaseModel(torch.nn.Module):
         self.temporal = False
         self.netDT = None             
                     
-        print('---------- Networks initialized -------------')
+        Visualizer.vis_print(self.opt, '---------- Networks initialized -------------')
 
         # initialize optimizers
         if self.isTrain:            
@@ -205,7 +205,7 @@ class BaseModel(torch.nn.Module):
             if self.add_face_D: params += list(self.netDf.parameters())
             self.optimizer_D = self.get_optimizer(params, for_discriminator=True)           
 
-        print('---------- Optimizers initialized -------------')
+        Visualizer.vis_print(self.opt, '---------- Optimizers initialized -------------')
 
         # make model temporal by generating multiple frames
         if (not opt.isTrain or start_epoch > opt.niter_single) and opt.n_frames_G > 1:
@@ -248,7 +248,7 @@ class BaseModel(torch.nn.Module):
             param_group['lr'] = D_lr
         for param_group in self.optimizer_G.param_groups:
             param_group['lr'] = G_lr
-        print('update learning rate: %f -> %f' % (self.old_lr, new_lr))
+        Visualizer.vis_print(self.opt, 'update learning rate: %f -> %f' % (self.old_lr, new_lr))
         self.old_lr = new_lr
 
     def make_temporal_model(self):
@@ -258,17 +258,15 @@ class BaseModel(torch.nn.Module):
         self.netG.cuda()
 
         if opt.isTrain:
-            self.lossCollector.tD = min(opt.n_frames_D, opt.n_frames_G)  
-            if opt.finetune_all:      
-                params = list(self.netG.parameters())
-            else:
-                train_names = ['flow_network_temp']
-                if opt.spade_combine: 
-                    train_names += ['img_warp_embedding', 'mlp_gamma3', 'mlp_beta3']
-                params, _ = self.get_train_params(self.netG, train_names) 
-                    
+            self.lossCollector.tD = min(opt.n_frames_D, opt.n_frames_G)              
+            params = list(self.netG.parameters())            
             if self.refine_face: params += list(self.netGf.parameters())
+
+            new_lr = self.old_lr / 10
+            self.opt.lr /= 10
+            Visualizer.vis_print(self.opt, 'update learning rate: %f -> %f' % (self.old_lr, new_lr))            
             self.optimizer_G = self.get_optimizer(params, for_discriminator=False)
+            self.old_lr = new_lr
             
             # temporal discriminator
             self.netDT = networks.define_D(opt, opt.output_nc * self.lossCollector.tD, opt.ndf, opt.n_layers_D, opt.norm_D, 'n_layers',
@@ -278,4 +276,4 @@ class BaseModel(torch.nn.Module):
             if self.add_face_D: params += list(self.netDf.parameters())
             self.optimizer_D = self.get_optimizer(params, for_discriminator=True)           
 
-            print('---------- Now start training multiple frames -------------')
+            Visualizer.vis_print(self.opt, '---------- Now start training multiple frames -------------')
