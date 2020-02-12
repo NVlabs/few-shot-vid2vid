@@ -36,6 +36,7 @@ class FewShotGenerator(BaseNetwork):
         self.spade_ks = spade_ks = opt.spade_ks # conv kernel size in SPADE
         self.spade_combine = opt.spade_combine  # combine ref/prev frames with current using SPADE
         self.n_sc_layers = opt.n_sc_layers      # number of layers to perform spade combine        
+        self.add_raw_loss = opt.add_raw_loss and opt.spade_combine
         ch_hidden = []                          # hidden channel size in SPADE module
         for i in range(n_downsample_G + 1):
             ch_hidden += [[ch[i]]] if not self.spade_combine or i >= self.n_sc_layers else [[ch[i]]*3]
@@ -153,13 +154,17 @@ class FewShotGenerator(BaseNetwork):
     ### when starting training multiple frames, initialize the flow network
     def set_flow_prev(self):        
         opt = self.opt
-        self.warp_prev = True
-        self.flow_network_temp = FlowGenerator(opt, opt.n_frames_G)
+        self.warp_prev = True        
+        self.sep_prev_flownet = opt.sep_flow_prev or (opt.n_frames_G != 2) or not opt.warp_ref
+        self.sep_prev_embedding = self.spade_combine and (opt.sep_warp_embed or not opt.warp_ref)
+        self.flow_network_temp = FlowGenerator(opt, opt.n_frames_G) if self.sep_prev_flownet else self.flow_network_ref
         if self.spade_combine:
-            self.img_prev_embedding = LabelEmbedder(opt, opt.output_nc + 1, opt.sc_arch)
+            self.add_raw_loss = True
+            self.img_prev_embedding = LabelEmbedder(opt, opt.output_nc + 1, opt.sc_arch) \
+                if self.sep_prev_embedding else self.img_ref_embedding
         if self.warp_ref:
-            self.load_pretrained_net(self.flow_network_ref, self.flow_network_temp)
-            if self.spade_combine: self.load_pretrained_net(self.img_ref_embedding, self.img_prev_embedding)
+            if self.sep_prev_flownet: self.load_pretrained_net(self.flow_network_ref, self.flow_network_temp)
+            if self.sep_prev_embedding: self.load_pretrained_net(self.img_ref_embedding, self.img_prev_embedding)
             self.flow_temp_is_initalized = True
 
     def forward(self, label, label_refs, img_refs, prev=[None, None], t=0, img_coarse=None):
@@ -178,13 +183,18 @@ class FewShotGenerator(BaseNetwork):
         flow, weight, img_warp, ds_ref = self.flow_generation(label, label_ref, img_ref, label_prev, img_prev, has_prev)
 
         weight_ref, weight_prev = weight
-        img_ref_warp, img_prev_warp = img_warp        
-        encoded_label = self.SPADE_combine(encoded_label, ds_ref)        
+        img_ref_warp, img_prev_warp = img_warp           
+        if self.add_raw_loss: encoded_label_raw = [encoded_label[i] for i in range(self.n_sc_layers)]            
+        encoded_label = self.SPADE_combine(encoded_label, ds_ref)          
         
         ### main branch convolution layers
         for i in range(self.n_downsample_G, -1, -1):            
             conv_weight = conv_weights[i] if (self.adap_conv and i < self.n_adaptive_layers) else None
             norm_weight = norm_weights[i] if (self.adap_spade and i < self.n_adaptive_layers) else None                  
+            if self.add_raw_loss and i < self.n_sc_layers:
+                if i == self.n_sc_layers - 1: x_raw = x
+                x_raw = getattr(self, 'up_'+str(i))(x_raw, encoded_label_raw[i], conv_weights=conv_weight, norm_weights=norm_weight)    
+                if i != 0: x_raw = self.up(x_raw)
             x = getattr(self, 'up_'+str(i))(x, encoded_label[i], conv_weights=conv_weight, norm_weights=norm_weight)            
             if i != 0: x = self.up(x)
 
@@ -206,7 +216,7 @@ class FewShotGenerator(BaseNetwork):
                 img_final = img_final * weight_prev + img_prev_warp * (1 - weight_prev)        
         else:
             img_final = img_raw
-            img_raw = None
+            img_raw = None if not self.add_raw_loss else torch.tanh(self.conv_img(actvn(x_raw)))
                 
         return img_final, flow, weight, img_raw, img_warp, mu, logvar, atn, ref_idx
 
@@ -274,27 +284,25 @@ class FewShotGenerator(BaseNetwork):
         b, c, h, w = x.size()
         n = self.opt.n_shot
         b = b//n
-        x = x.view(b, n, c, h*w)
-        
+
         if attention is None:
             atn_key = self.atn_key_first(label_ref)
-            atn_query = self.atn_query_first(label)                
-            
-            for i in range(self.n_downsample_A):            
-                atn_key = getattr(self, 'atn_key_'+str(i))(atn_key)
-                atn_query = getattr(self, 'atn_query_'+str(i))(atn_query)
-            
-            atn_key = atn_key.view(b, n, c, -1)
-            atn_query = atn_query.view(b, 1, c, -1).expand_as(atn_key)            
-                        
-            energy = torch.sum(atn_key * atn_query, dim=2)
-            attention = nn.Softmax(dim=1)(energy) # b X n X hw
-        else:
-            attention = attention.view(b, n, h*w)
+            atn_query = self.atn_query_first(label)
 
-        out = torch.sum(x * attention.unsqueeze(2).expand_as(x), dim=1).view(b, c, h, w)
-        
-        return out, attention.view(b, n, h, w)        
+            for i in range(self.n_downsample_A):
+                atn_key = getattr(self, 'atn_key_' + str(i))(atn_key)
+                atn_query = getattr(self, 'atn_query_' + str(i))(atn_query)
+
+            atn_key = atn_key.view(b, n, c, -1).permute(0, 1, 3, 2).contiguous().view(b, -1, c)  # B X NHW X C
+            atn_query = atn_query.view(b, c, -1)  # B X C X HW
+            energy = torch.bmm(atn_key, atn_query)  # B X NHW X HW
+            attention = nn.Softmax(dim=1)(energy)
+
+        x = x.view(b, n, c, h * w).permute(0, 2, 1, 3).contiguous().view(b, c, -1)  # B X C X NHW
+        out = torch.bmm(x, attention).view(b, c, h, w)
+
+        atn_vis = attention.view(b, n, h * w, h * w).sum(2).view(b, n, h, w)  # B X N X HW
+        return out, attention, atn_vis[-1:, 0:1]      
 
     ### pick the reference image that is most similar to current frame
     def pick_ref(self, refs, ref_idx):
@@ -341,7 +349,7 @@ class FewShotGenerator(BaseNetwork):
         else:
             assert False
 
-        atn = ref_idx = None # attention map and the index of the most similar reference image
+        atn_vis = ref_idx = None # attention map and the index of the most similar reference image
         for i in range(self.n_downsample_G):            
             x = getattr(self, 'ref_img_down_'+str(i))(x)
             if self.mul_label_ref: 
@@ -349,9 +357,9 @@ class FewShotGenerator(BaseNetwork):
 
             ### combine different reference images at a particular layer if n_shot > 1
             if n > 1 and i == self.n_downsample_A - 1:
-                x, atn = self.attention_module(x, label, label_ref)
+                x, atn, atn_vis = self.attention_module(x, label, label_ref)
                 if self.mul_label_ref:
-                    x_label, _ = self.attention_module(x_label, None, None, atn)
+                    x_label, _, _ = self.attention_module(x_label, None, None, atn)
 
                 atn_sum = atn.view(label.shape[0], n, -1).sum(2)
                 ref_idx = torch.argmax(atn_sum, dim=1)                
@@ -381,7 +389,7 @@ class FewShotGenerator(BaseNetwork):
                 encoded_ref = encoded_image_ref
             encoded_ref = encoded_ref[::-1]
 
-        return x, encoded_ref, atn, ref_idx
+        return x, encoded_ref, atn_vis, ref_idx
 
     ### generate weights based on the encoded features
     def weight_generation(self, img_ref, label_ref, label, t=0, img_coarse=None):
@@ -435,7 +443,7 @@ class FewShotGenerator(BaseNetwork):
     ### if using SPADE for combination
     def SPADE_combine(self, encoded_label, ds_ref):        
         if self.spade_combine:            
-            encoded_image_warp = [self.img_ref_embedding(ds_ref[0]), 
+            encoded_image_warp = [self.img_ref_embedding(ds_ref[0]),
                                   self.img_prev_embedding(ds_ref[1]) if ds_ref[1] is not None else None]
             for i in range(self.n_sc_layers):
                 encoded_label[i] = [encoded_label[i]] + [w[i] if w is not None else None for w in encoded_image_warp]
@@ -503,6 +511,8 @@ class LabelEmbedder(BaseNetwork):
         nf = opt.ngf
         nf_max = 1024
         self.netS = netS if netS is not None else opt.netS
+        self.unet = 'unet' in self.netS
+        self.decode = 'decoder' in self.netS or self.unet
         self.n_downsample_S = n_downsample_S = opt.n_downsample_G        
         self.params_free_layers = params_free_layers if params_free_layers != -1 else n_downsample_S
         self.first_layer_free = first_layer_free    
@@ -517,13 +527,14 @@ class LabelEmbedder(BaseNetwork):
             layer = [nn.Conv2d(ch[i], ch[i+1], kernel_size=3, stride=2, padding=1), activation]
             if i >= params_free_layers or 'decoder' in netS:
                 setattr(self, 'down_%d' % i, nn.Sequential(*layer))
-        
+
         # upsample
-        if 'decoder' in self.netS:
-            for i in reversed(range(n_downsample_S)):                
-                layer = [nn.ConvTranspose2d(ch[i+1], ch[i], kernel_size=3, stride=2, padding=1, output_padding=1), activation]                    
+        if self.decode:
+            for i in reversed(range(n_downsample_S)):
+                ch_i = ch[i+1] * (2 if self.unet and i != n_downsample_S -1 else 1)                
+                layer = [nn.ConvTranspose2d(ch_i, ch[i], kernel_size=3, stride=2, padding=1, output_padding=1), activation]                
                 if i >= params_free_layers:
-                    setattr(self, 'up_%d' % i, nn.Sequential(*layer))            
+                    setattr(self, 'up_%d' % i, nn.Sequential(*layer))                
 
     def forward(self, input, weights=None):
         if input is None: return None
@@ -533,20 +544,26 @@ class LabelEmbedder(BaseNetwork):
         else:
             output = [self.conv_first(input)]
         for i in range(self.n_downsample_S):
-            if i >= self.params_free_layers or 'decoder' in self.netS:                
+            if i >= self.params_free_layers or self.decode:                
                 conv = getattr(self, 'down_%d' % i)(output[-1])
             else:                
                 conv = batch_conv(output[-1], weights[i], stride=2)
             output.append(conv)
 
-        if self.netS == 'encoder':            
+        if not self.decode:
             return output
 
-        output = [output[-1]]        
+        if not self.unet:
+            output = [output[-1]]
         for i in reversed(range(self.n_downsample_S)):
+            input_i = output[-1]
+            if self.unet and i != self.n_downsample_S-1:
+                input_i = torch.cat([input_i, output[i+1]], dim=1)
             if i >= self.params_free_layers:                
-                conv = getattr(self, 'up_%d' % i)(output[-1])            
+                conv = getattr(self, 'up_%d' % i)(input_i)
             else:                
-                conv = batch_conv(output[-1], weights[i], stride=0.5)
+                conv = batch_conv(input_i, weights[i], stride=0.5)
             output.append(conv)
+        if self.unet:
+            output = output[self.n_downsample_S:]   
         return output[::-1]

@@ -37,7 +37,7 @@ webpage = html.HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.na
 for i, data in enumerate(dataset):
     if i >= opt.how_many or i >= len(dataset): break
     img_path = data['path']   
-    data_list = [data['tgt_label'], data['tgt_image'], None, None, data['ref_label'], data['ref_image'], None, None]
+    data_list = [data['tgt_label'], data['tgt_image'], None, None, data['ref_label'], data['ref_image'], None, None, None]
     synthesized_image, _, _, _, _, _ = model(data_list)
             
     synthesized_image = util.tensor2im(synthesized_image)    

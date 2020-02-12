@@ -45,7 +45,7 @@ def batch_conv(x, weight, bias=None, stride=1, group_size=-1):
             yi = F.conv2d(x[i:i+1], weight=weight[i], bias=bias[i], padding=padding, stride=stride, groups=groups)
         else:
             yi = F.conv_transpose2d(x[i:i+1], weight=weight[i], bias=bias[i,:weight.size(2)], padding=padding, stride=int(1/stride),
-                output_padding=padding, groups=groups)
+                output_padding=1, groups=groups)
         y = concat(y, yi)
     return y
 

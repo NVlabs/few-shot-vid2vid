@@ -95,10 +95,12 @@ def save_all_tensors(opt, output_list, model):
     visual_list = [('target_label', util.visualize_label(opt, target_label, model)),                   
                    ('synthesized_image', util.tensor2im(fake_image)),
                    ('target_image', util.tensor2im(target_image)),
-                   ('ref_image', util.tensor2im(ref_image)),
+                   ('ref_image', util.tensor2im(ref_image, tile=True)),
                    ('raw_image', util.tensor2im(fake_raw_image)),
                    ('warped_images', util.tensor2im(warped_image, tile=True)),
                    ('flows', util.tensor2flow(flow, tile=True)),
-                   ('weights', util.tensor2im(weight, normalize=False, tile=True))]
+                   ('weights', util.tensor2im(weight, normalize=False, tile=True)),
+                   ('atn_score', util.tensor2im(atn_score, normalize=False)),
+                  ]
     visuals = OrderedDict(visual_list)
     return visuals

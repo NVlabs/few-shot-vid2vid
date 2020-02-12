@@ -45,7 +45,7 @@ def train():
                 flow_gt, conf_gt = flowNet(data_list, epoch)
             data_list = [data['tgt_label'], data['tgt_image'], flow_gt, conf_gt]
             data_ref_list = [data['ref_label'], data['ref_image']]
-            data_prev = [None, None]  
+            data_prev = [None, None, None]
 
             ############## Forward Pass ######################
             for t in range(0, n_frames_total, n_frames_load):

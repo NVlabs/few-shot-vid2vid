@@ -153,6 +153,19 @@ def mkdir(path):
     if not os.path.exists(path):
         os.makedirs(path)
 
+def random_roll(tensors):
+    h, w = tensors[0].shape[2:]
+    ny = np.random.choice([np.random.randint(h//16), h-np.random.randint(h//16)])
+    nx = np.random.choice([np.random.randint(w//16), w-np.random.randint(w//16)])    
+    flip = np.random.rand() > 0.5
+    return [roll(t, ny, nx, flip) for t in tensors]
+
+def roll(t, ny, nx, flip):
+    t = torch.cat([t[:,:,-ny:], t[:,:,:-ny]], dim=2)
+    t = torch.cat([t[:,:,:,-nx:], t[:,:,:,:-nx]], dim=3)
+    if flip: t = torch.flip(t, dims=[3])
+    return t
+
 ###############################################################################
 # Code from
 # https://github.com/ycszen/pytorch-seg/blob/master/transform.py
