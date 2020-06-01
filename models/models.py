@@ -30,7 +30,7 @@ def create_model(opt, epoch=0):
         model = WrapModel(opt, model)
         flowNet = None
         if not opt.no_flow_gt:
-            from .flownet_new import FlowNet
+            from .flownet import FlowNet
             flowNet = FlowNet()
             flowNet.initialize(opt)
             flowNet = WrapModel(opt, flowNet)

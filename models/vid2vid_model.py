@@ -89,7 +89,7 @@ class Vid2VidModel(BaseModel):
             self.reshape([flow, flow_mask, flow_gt, conf_gt, fg_mask, ref_fg_mask, warped_image, tgt_image])
         
         loss_F_Flow, loss_F_Warp, body_mask_diff = self.lossCollector.compute_flow_losses(flow, warped_image, tgt_image, 
-            flow_gt, conf_gt, fg_mask, tgt_label, ref_label, ref_image, self.netG)
+            flow_gt, conf_gt, fg_mask, tgt_label, ref_label)
 
         loss_F_Mask = self.lossCollector.compute_mask_losses(flow_mask, fake_image, warped_image, tgt_label, tgt_image,
             fake_raw_image, fg_mask, ref_fg_mask, body_mask_diff)

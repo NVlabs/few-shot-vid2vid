@@ -129,7 +129,7 @@ class LossCollector(BaseModel):
                 loss_G_VGG += self.criterionVGG(fake_raw_image, tgt_image * fg_mask_union)
         return loss_G_VGG * opt.lambda_vgg
 
-    def compute_flow_losses(self, flow, warped_image, tgt_image, flow_gt, flow_conf_gt, fg_mask, tgt_label, ref_label, ref_image, netG):
+    def compute_flow_losses(self, flow, warped_image, tgt_image, flow_gt, flow_conf_gt, fg_mask, tgt_label, ref_label):
         loss_F_Flow_r, loss_F_Warp_r = self.compute_flow_loss(flow[0], warped_image[0], tgt_image, flow_gt[0], flow_conf_gt[0], fg_mask)
         loss_F_Flow_p, loss_F_Warp_p = self.compute_flow_loss(flow[1], warped_image[1], tgt_image, flow_gt[1], flow_conf_gt[1], fg_mask)
         loss_F_Flow = loss_F_Flow_p + loss_F_Flow_r
@@ -137,6 +137,7 @@ class LossCollector(BaseModel):
         lambda_flow = self.opt.lambda_flow
         
         body_mask_diff = None
+        # Get the disocclusion regions for (DensePose) body parts and foreground.
         if self.opt.isTrain and self.pose and flow[0] is not None:            
             body_mask = get_part_mask(tgt_label[:,:,2])
             ref_body_mask = get_part_mask(ref_label[:,2].unsqueeze(1)).expand_as(body_mask)
@@ -155,7 +156,7 @@ class LossCollector(BaseModel):
     def compute_flow_loss(self, flow, warped_image, tgt_image, flow_gt, flow_conf_gt, fg_mask):        
         loss_F_Flow, loss_F_Warp = self.Tensor(1).fill_(0), self.Tensor(1).fill_(0)
         if self.opt.isTrain and flow is not None:
-            if flow_gt is not None and self.opt.n_shot == 1: # only computed ground truth flow for first reference image                  
+            if flow_gt is not None and self.opt.n_shot == 1: # Only computed ground truth flow for first reference image.
                 loss_F_Flow = self.criterionFlow(flow, flow_gt, flow_conf_gt * fg_mask)
             loss_F_Warp = self.criterionFeat(warped_image, tgt_image)
         return loss_F_Flow, loss_F_Warp
@@ -168,7 +169,8 @@ class LossCollector(BaseModel):
         loss_mask += self.compute_mask_loss(flow_mask[1], warped_image[1], tgt_image, fake_image[:,-1], fake_raw_image)
         
         opt = self.opt
-        if opt.isTrain and self.pose and self.warp_ref:            
+        if opt.isTrain and self.pose and self.warp_ref:
+            # Force the output to use more from the warped image for face region.
             flow_mask_ref = flow_mask[0]
             b, t, _, h, w = tgt_label.size()
             dummy0, dummy1 = torch.zeros_like(flow_mask_ref), torch.ones_like(flow_mask_ref)
@@ -178,6 +180,7 @@ class LossCollector(BaseModel):
             if opt.spade_combine:                
                 loss_mask += self.criterionFlow(fake_image[:,-1], warped_image[0].detach(), face_mask)
 
+            # Force the output to use more from the hallucinated image for disocclusion part.
             fg_mask_diff = ((ref_fg_mask - fg_mask) > 0).float()            
             loss_mask += self.criterionFlow(flow_mask_ref, dummy1, fg_mask_diff)
             loss_mask += self.criterionFlow(flow_mask_ref, dummy1, body_mask_diff)
