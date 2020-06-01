@@ -4,14 +4,15 @@
 # under the Nvidia Source Code License (1-way Commercial).
 # To view a copy of this license, visit
 # https://nvlabs.github.io/few-shot-vid2vid/License.txt
-import re
 import torch
 import numpy as np
+import random
 from PIL import Image
 import os
 import cv2
 
 from models.input_process import use_valid_labels
+from util.distributed import is_master
 
 def visualize_label(opt, label_tensor, model=None): 
     if 'pose' in opt.dataset_mode:
@@ -50,7 +51,7 @@ def tensor2im(image_tensor, imtype=np.uint8, normalize=True, tile=False):
     if image_tensor.dim() == 5:
         image_tensor = image_tensor[-1]
     if image_tensor.dim() == 4:
-        if tile:            
+        if tile:
             images_np = [tensor2im(image_tensor[b]) for b in range(image_tensor.size(0))]
             return tile_images(images_np)
         image_tensor = image_tensor[-1]
@@ -150,14 +151,14 @@ def mkdirs(paths):
         mkdir(paths)
 
 def mkdir(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
+    if is_master():
+        os.makedirs(path, exist_ok=True)
 
 def random_roll(tensors):
     h, w = tensors[0].shape[2:]
-    ny = np.random.choice([np.random.randint(h//16), h-np.random.randint(h//16)])
-    nx = np.random.choice([np.random.randint(w//16), w-np.random.randint(w//16)])    
-    flip = np.random.rand() > 0.5
+    ny = random.choice([random.randrange(h//16), h-random.randrange(h//16)])
+    nx = random.choice([random.randrange(w//16), w-random.randrange(w//16)])
+    flip = random.random() > 0.5
     return [roll(t, ny, nx, flip) for t in tensors]
 
 def roll(t, ny, nx, flip):

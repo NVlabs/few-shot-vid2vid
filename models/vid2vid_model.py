@@ -5,14 +5,17 @@
 # To view a copy of this license, visit
 # https://nvlabs.github.io/few-shot-vid2vid/License.txt
 import torch
-import numpy as np
+import random
 
 import models.networks as networks
 from models.base_model import BaseModel
 from models.input_process import *
 from models.loss_collector import LossCollector, loss_backward
+from models.networks.base_network import pick_ref
 from models.face_refiner import FaceRefineModel
 from util.util import random_roll
+from util.distributed import set_random_seed, get_rank
+
 
 class Vid2VidModel(BaseModel):
     def name(self):
@@ -20,9 +23,10 @@ class Vid2VidModel(BaseModel):
 
     def initialize(self, opt, epoch=0):
         BaseModel.initialize(self, opt)        
-        torch.backends.cudnn.benchmark = True        
-        
-        # define losses        
+        torch.backends.cudnn.benchmark = True
+        set_random_seed(0)
+
+        # define losses
         self.lossCollector = LossCollector()
         self.lossCollector.initialize(opt)        
         
@@ -37,7 +41,8 @@ class Vid2VidModel(BaseModel):
         self.define_networks(epoch)
 
         # load networks        
-        self.load_networks()        
+        self.load_networks()
+        set_random_seed(get_rank())
 
     def forward(self, data_list, save_images=False, mode='inference', dummy_bs=0):              
         tgt_label, tgt_image, flow_gt, conf_gt, ref_labels, ref_images, prevs = encode_input(self.opt, data_list, dummy_bs)
@@ -54,23 +59,22 @@ class Vid2VidModel(BaseModel):
         else:
             return self.inference(tgt_label, ref_labels, ref_images)
    
-    def forward_generator(self, tgt_label, tgt_image, ref_labels, ref_images, prevs=[None]*3, flow_gt=[None]*2, conf_gt=[None]*2):
-        opt = self.opt        
+    def forward_generator(self, tgt_label, tgt_image, ref_labels, ref_images, prevs=[None]*3, flow_gt=[None]*2, conf_gt=[None]*2):        
         ### fake generation
-        [fake_image, fake_raw_image, warped_image, flow, weight], [fg_mask, ref_fg_mask], \
+        [fake_image, fake_raw_image, warped_image, flow, flow_mask], [fg_mask, ref_fg_mask], \
             [ref_label, ref_image], prevs_new, atn_score = self.generate_images(tgt_label, tgt_image, ref_labels, ref_images, prevs)
 
         ### temporal losses
         nets = self.netD, self.netDT, self.netDf, self.faceRefiner
         loss_GT_GAN, loss_GT_GAN_Feat = self.Tensor(1).fill_(0), self.Tensor(1).fill_(0)
-        if self.isTrain and prevs[0] is not None:
+        if self.isTrain and self.opt.lambda_temp > 0 and prevs[0] is not None:
             tgt_image_all = torch.cat([prevs[1], tgt_image], dim=1)
             fake_image_all = torch.cat([prevs[2], fake_image], dim=1)
             data_list = [None, tgt_image_all, fake_image_all, None, None]
             loss_GT_GAN, loss_GT_GAN_Feat = self.lossCollector.compute_GAN_losses(nets, data_list, 
                 for_discriminator=False, for_temporal=True)
 
-        ### individual frame losses
+        ### individual frame losses        
         # GAN loss
         fg_mask_union = combine_fg_mask(fg_mask, ref_fg_mask, self.has_fg)        
         data_list = [tgt_label, [tgt_image, tgt_image * fg_mask_union], [fake_image, fake_raw_image], ref_label, ref_image]
@@ -81,21 +85,23 @@ class Vid2VidModel(BaseModel):
         loss_G_VGG = self.lossCollector.compute_VGG_losses(fake_image, fake_raw_image, tgt_image, fg_mask_union)        
 
         # flow loss
-        flow, weight, flow_gt, conf_gt, fg_mask, ref_fg_mask, warped_image, tgt_image = \
-            self.reshape([flow, weight, flow_gt, conf_gt, fg_mask, ref_fg_mask, warped_image, tgt_image])             
-        loss_F_Flow, loss_F_Warp, body_mask_diff = self.lossCollector.compute_flow_losses(flow, warped_image, tgt_image, 
-            flow_gt, conf_gt, fg_mask, tgt_label, ref_label, self.netG)
-        loss_W = self.lossCollector.compute_weight_losses(weight, fake_image, warped_image, tgt_label, tgt_image, 
-            fg_mask, ref_fg_mask, body_mask_diff)
+        flow, flow_mask, flow_gt, conf_gt, fg_mask, ref_fg_mask, warped_image, tgt_image = \
+            self.reshape([flow, flow_mask, flow_gt, conf_gt, fg_mask, ref_fg_mask, warped_image, tgt_image])
         
+        loss_F_Flow, loss_F_Warp, body_mask_diff = self.lossCollector.compute_flow_losses(flow, warped_image, tgt_image, 
+            flow_gt, conf_gt, fg_mask, tgt_label, ref_label, ref_image, self.netG)
+
+        loss_F_Mask = self.lossCollector.compute_mask_losses(flow_mask, fake_image, warped_image, tgt_label, tgt_image,
+            fake_raw_image, fg_mask, ref_fg_mask, body_mask_diff)
+
         loss_list = [loss_G_GAN, loss_G_GAN_Feat, loss_G_VGG, # GAN + VGG loss
                      loss_Gf_GAN, loss_Gf_GAN_Feat,           # additional GAN loss for face
                      loss_GT_GAN, loss_GT_GAN_Feat,           # temporal GAN loss
-                     loss_F_Flow, loss_F_Warp, loss_W]        # flow loss
-        loss_list = [loss.view(1, 1) for loss in loss_list]
+                     loss_F_Flow, loss_F_Warp, loss_F_Mask]   # flow loss
+        loss_list = [loss.view(1, 1) for loss in loss_list]        
             
         return loss_list, \
-               [fake_image, fake_raw_image, warped_image, flow, weight, atn_score], prevs_new
+               [fake_image, fake_raw_image, warped_image, flow, flow_mask, atn_score], prevs_new
     
     def forward_discriminator(self, tgt_label, tgt_image, ref_labels, ref_images, prevs=[None]*3):
         ### Fake Generation
@@ -106,7 +112,7 @@ class Vid2VidModel(BaseModel):
         ### temporal losses
         nets = self.netD, self.netDT, self.netDf, self.faceRefiner
         loss_temp = []
-        if self.isTrain and prevs[0] is not None:            
+        if self.isTrain and self.opt.lambda_temp > 0 and prevs[0] is not None:
             tgt_image_all = torch.cat([prevs[1], tgt_image], dim=1)
             fake_image_all = torch.cat([prevs[2], fake_image], dim=1)            
             data_list = [None, tgt_image_all, fake_image_all, None, None]
@@ -132,10 +138,10 @@ class Vid2VidModel(BaseModel):
             tgt_label_t, tgt_label_valid, tgt_image, prev_t = self.get_input_t(tgt_labels, tgt_images, prevs, t)
                                   
             # actual network forward
-            fake_image, flow, weight, fake_raw_image, warped_image, mu, logvar, atn_score, ref_idx \
+            fake_image, flow, flow_mask, fake_raw_image, warped_image, mu, logvar, atn_score, ref_idx \
                 = self.netG(tgt_label_valid, ref_labels_valid, ref_images, prev_t)
             
-            ref_label_valid, ref_label_t, ref_image_t = self.netG.pick_ref([ref_labels_valid, ref_labels, ref_images], ref_idx)
+            ref_label_valid, ref_label_t, ref_image_t = pick_ref([ref_labels_valid, ref_labels, ref_images], ref_idx)
             # refine face if necessary            
             if self.refine_face:                                
                 fake_image = self.faceRefiner.refine_face_region(self.netGf, tgt_label_valid, fake_image, tgt_label_t,
@@ -145,7 +151,7 @@ class Vid2VidModel(BaseModel):
             fg_mask, ref_fg_mask = get_fg_mask(self.opt, [tgt_label_t, ref_label_t], self.has_fg)
             if fake_raw_image is not None:
                 fake_raw_image = fake_raw_image * combine_fg_mask(fg_mask, ref_fg_mask, self.has_fg)
-            generated_images = self.concat([generated_images, [fake_image, fake_raw_image, warped_image, flow, weight]], dim=1)
+            generated_images = self.concat([generated_images, [fake_image, fake_raw_image, warped_image, flow, flow_mask]], dim=1)
             generated_masks = self.concat([generated_masks, [fg_mask, ref_fg_mask]], dim=1)            
             prevs = self.concat_prev(prevs, [tgt_label_valid, tgt_image, fake_image])
                 
@@ -186,17 +192,17 @@ class Vid2VidModel(BaseModel):
             self.finetune(ref_labels, ref_images)
 
         with torch.no_grad():            
-            fake_image, flow, weight, fake_raw_image, warped_image, _, _, atn_score, ref_idx = self.netG(tgt_label_valid, 
+            fake_image, flow, flow_mask, fake_raw_image, warped_image, _, _, atn_score, ref_idx = self.netG(tgt_label_valid, 
                 ref_labels_valid, ref_images, prevs, t=self.t)
 
-            ref_label_valid, ref_label, ref_image = self.netG.pick_ref([ref_labels_valid, ref_labels, ref_images], ref_idx)
+            ref_label_valid, ref_label, ref_image = pick_ref([ref_labels_valid, ref_labels, ref_images], ref_idx)
             if self.refine_face:                                
                 fake_image = self.faceRefiner.refine_face_region(self.netGf, tgt_label_valid, fake_image, tgt_label[:,-1], 
                     ref_label_valid, ref_image, ref_label)            
             
             self.prevs = self.concat_prev(self.prevs, [tgt_label_valid, fake_image])            
             
-        return fake_image, fake_raw_image, warped_image, flow, weight, atn_score
+        return fake_image, fake_raw_image, warped_image, flow, flow_mask, atn_score
 
     def finetune(self, ref_labels, ref_images):
         train_names = ['fc', 'conv_img', 'up']        
@@ -211,17 +217,17 @@ class Vid2VidModel(BaseModel):
 
         iterations = 100
         for it in range(1, iterations + 1):            
-            idx = np.random.randint(ref_labels.size(1))
+            idx = random.randrange(ref_labels.size(1))
             tgt_label, tgt_image = random_roll([ref_labels[:,idx], ref_images[:,idx]])
             tgt_label, tgt_image = tgt_label.unsqueeze(1), tgt_image.unsqueeze(1)            
 
             g_losses, generated, prev = self.forward_generator(tgt_label, tgt_image, ref_labels, ref_images)
-            g_losses = loss_backward(self.opt, g_losses, self.optimizer_G)
+            g_losses = loss_backward(self.opt, g_losses, self.optimizer_G, 0)
 
             d_losses = []
             if update_D:
                 d_losses = self.forward_discriminator(tgt_label, tgt_image, ref_labels, ref_images)
-                d_losses = loss_backward(self.opt, d_losses, self.optimizer_D)
+                d_losses = loss_backward(self.opt, d_losses, self.optimizer_D, 1)
 
             if (it % 10) == 0: 
                 message = '(iters: %d) ' % it

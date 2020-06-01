@@ -13,6 +13,7 @@ import scipy.misc
 from io import BytesIO, StringIO
 from util import util
 from util import html
+from util.distributed import is_master
 from util.distributed import master_only_print as print
 
 class Visualizer():
@@ -206,7 +207,7 @@ class Visualizer():
     @staticmethod
     def vis_print(opt, message):
         print(message)
-        if opt.isTrain and not opt.debug:
+        if is_master() and opt.isTrain and not opt.debug:
             log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')
             with open(log_name, "a") as log_file:
                 log_file.write('%s\n' % message)

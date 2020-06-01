@@ -5,16 +5,19 @@
 # To view a copy of this license, visit
 # https://nvlabs.github.io/few-shot-vid2vid/License.txt
 import os
+import numpy as np
+import random
 import functools
-
 import torch
 import torch.distributed as dist
+
 
 def init_dist(launcher='pytorch', backend='nccl', **kwargs):
     if dist.is_initialized():
         return torch.cuda.current_device()
     # if mp.get_start_method(allow_none=True) is None:
         # mp.set_start_method('spawn')
+    set_random_seed(get_rank())
     rank = int(os.environ['RANK'])
     num_gpus = torch.cuda.device_count()
     gpu_id = rank % num_gpus
@@ -93,3 +96,15 @@ def dist_all_gather_tensor(tensor):
     with torch.no_grad():
         dist.all_gather(tensor_list, tensor)
     return tensor_list
+
+
+def set_random_seed(seed):
+    """Set random seeds for everything.
+       Inputs:
+       seed (int): Random seed.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)

@@ -4,7 +4,7 @@
 # under the Nvidia Source Code License (1-way Commercial).
 # To view a copy of this license, visit
 # https://nvlabs.github.io/few-shot-vid2vid/License.txt
-import sys
+import os
 import numpy as np
 import torch
 
@@ -17,10 +17,12 @@ from util.distributed import init_dist
 from util.distributed import master_only_print as print
 
 def train():
-    opt = TrainOptions().parse()    
-    if opt.distributed:
-        init_dist()
-        opt.batchSize = opt.batchSize // len(opt.gpu_ids)    
+    opt = TrainOptions().parse()
+
+    if opt.distributed:        
+        init_dist()        
+        print('batch size per GPU: %d' % opt.batchSize)
+    torch.backends.cudnn.benchmark = True
 
     ### setup dataset
     data_loader = CreateDataLoader(opt)
@@ -31,16 +33,18 @@ def train():
     trainer = Trainer(opt, data_loader) 
 
     ### setup models
-    model, flowNet = create_model(opt, trainer.start_epoch)
+    model, flowNet, [optimizer_G, optimizer_D] = create_model(opt, trainer.start_epoch)
     flow_gt = conf_gt = [None] * 2       
     
     for epoch in range(trainer.start_epoch, opt.niter + opt.niter_decay + 1):
+        if opt.distributed:
+            dataset.sampler.set_epoch(epoch)
         trainer.start_of_epoch(epoch, model, data_loader)
         n_frames_total, n_frames_load = data_loader.dataset.n_frames_total, opt.n_frames_per_gpu
         for idx, data in enumerate(dataset, start=trainer.epoch_iter):
-            trainer.start_of_iter()            
+            data = trainer.start_of_iter(data)
 
-            if not opt.no_flow_gt: 
+            if not opt.no_flow_gt:
                 data_list = [data['tgt_label'], data['ref_label']] if pose else [data['tgt_image'], data['ref_image']]
                 flow_gt, conf_gt = flowNet(data_list, epoch)
             data_list = [data['tgt_label'], data['tgt_image'], flow_gt, conf_gt]
@@ -49,18 +53,18 @@ def train():
 
             ############## Forward Pass ######################
             for t in range(0, n_frames_total, n_frames_load):
-                data_list_t = get_data_t(data_list, n_frames_load, t) + data_ref_list + data_prev
-                                
-                g_losses, generated, data_prev = model(data_list_t, save_images=trainer.save, mode='generator')
-                g_losses = loss_backward(opt, g_losses, model.module.optimizer_G)
+                data_list_t = get_data_t(data_list, n_frames_load, t) + data_ref_list + data_prev                
 
                 d_losses = model(data_list_t, mode='discriminator')
-                d_losses = loss_backward(opt, d_losses, model.module.optimizer_D)
+                d_losses = loss_backward(opt, d_losses, optimizer_D, 1)
+                
+                g_losses, generated, data_prev = model(data_list_t, save_images=trainer.save, mode='generator')
+                g_losses = loss_backward(opt, g_losses, optimizer_G, 0)                
                         
             loss_dict = dict(zip(model.module.lossCollector.loss_names, g_losses + d_losses))     
 
             if trainer.end_of_iter(loss_dict, generated + data_list + data_ref_list, model):
-                break        
+                break
         trainer.end_of_epoch(model)
 
 def get_data_t(data, n_frames_load, t):

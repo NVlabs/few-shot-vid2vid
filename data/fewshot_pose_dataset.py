@@ -5,11 +5,11 @@
 # To view a copy of this license, visit
 # https://nvlabs.github.io/few-shot-vid2vid/License.txt
 import os.path as path
-import glob
-import torchvision.transforms as transforms
 import torch
 from PIL import Image
 import numpy as np
+import random
+import json
 
 from data.base_dataset import BaseDataset, get_img_params, get_video_params, get_transform
 from data.image_folder import make_dataset, make_grouped_dataset, check_path_valid
@@ -39,10 +39,28 @@ class FewshotPoseDataset(BaseDataset):
         self.pose_type = opt.pose_type
         
         root = opt.dataroot 
-        if opt.isTrain:            
+        if opt.isTrain:
             self.img_paths = sorted(make_grouped_dataset(path.join(root, 'train_images')))
             self.op_paths = sorted(make_grouped_dataset(path.join(root, 'train_openpose')))
             self.dp_paths = sorted(make_grouped_dataset(path.join(root, 'train_densepose')))
+            self.ppl_indices = None
+            if path.exists(path.join(root, 'all_subsequences.json')):
+                with open(path.join(root, 'all_subsequences.json')) as f:
+                    all_subsequences = json.loads(f.read())
+                seq_indices = all_subsequences['seq_indices']
+                start_frame_indices = all_subsequences['start_frame_indices']
+                end_frame_indices = all_subsequences['end_frame_indices']
+                img_paths, op_paths, dp_paths = [], [], []
+                for i in range(len(seq_indices)):
+                    seq_idx = seq_indices[i]
+                    start_frame_idx, end_frame_idx = start_frame_indices[i], end_frame_indices[i]
+                    img_paths += [self.img_paths[seq_idx][start_frame_idx : end_frame_idx]]
+                    op_paths += [self.op_paths[seq_idx][start_frame_idx: end_frame_idx]]
+                    dp_paths += [self.dp_paths[seq_idx][start_frame_idx: end_frame_idx]]
+                self.img_paths = img_paths
+                self.op_paths = op_paths
+                self.dp_paths = dp_paths
+                self.ppl_indices = all_subsequences['ppl_indices']
         else:    
             self.img_paths = sorted(make_dataset(opt.seq_path))
             self.op_paths = sorted(make_dataset(opt.seq_path.replace('images', 'openpose')))
@@ -60,13 +78,14 @@ class FewshotPoseDataset(BaseDataset):
     def __getitem__(self, index):
         opt = self.opt
         if opt.isTrain:
-            np.random.seed(index)
-            seq_idx = np.random.randint(self.n_of_seqs) # which sequence to load
+            # np.random.seed(index)
+            seq_idx = random.randrange(self.n_of_seqs) # which sequence to load
 
             img_paths = self.img_paths[seq_idx]
             op_paths = self.op_paths[seq_idx]
             dp_paths = self.dp_paths[seq_idx]
-            ref_img_paths, ref_op_paths, ref_dp_paths = img_paths, op_paths, dp_paths
+            ppl_indices = self.ppl_indices[seq_idx] if self.ppl_indices is not None else None
+            ref_img_paths, ref_op_paths, ref_dp_paths, ref_ppl_indices = img_paths, op_paths, dp_paths, ppl_indices
         else:            
             img_paths, op_paths, dp_paths = self.img_paths, self.op_paths, self.dp_paths
             ref_img_paths, ref_op_paths, ref_dp_paths = self.ref_img_paths, self.ref_op_paths, self.ref_dp_paths
@@ -87,8 +106,8 @@ class FewshotPoseDataset(BaseDataset):
             ref_crop_coords = [None] * opt.n_shot
             for i, idx in enumerate(ref_indices):                
                 ref_size = self.read_data(ref_img_paths[idx]).size
-                Li, Ii, ref_crop_coords[i], ref_face_pts = self.get_images(ref_img_paths, ref_op_paths, ref_dp_paths, 
-                    idx, ref_size, img_params, self.ref_crop_coords[i])
+                Li, Ii, ref_crop_coords[i], ref_face_pts = self.get_images(ref_img_paths, ref_op_paths, ref_dp_paths,
+                    ref_ppl_indices, idx, ref_size, img_params, self.ref_crop_coords[i])
                 Lr = self.concat_frame(Lr, Li.unsqueeze(0))            
                 Ir = self.concat_frame(Ir, Ii.unsqueeze(0))                            
         
@@ -105,8 +124,8 @@ class FewshotPoseDataset(BaseDataset):
         L, I = self.L, self.I        
         for t in range(n_frames_total):
             idx = start_idx + t * t_step
-            Lt, It, crop_coords, _ = self.get_images(img_paths, op_paths, dp_paths, idx, size, img_params, \
-                crop_coords, self.ref_face_pts)
+            Lt, It, crop_coords, _ = self.get_images(img_paths, op_paths, dp_paths, ppl_indices, idx, size,
+                img_params, crop_coords, self.ref_face_pts)
             L = self.concat_frame(L, Lt.unsqueeze(0))
             I = self.concat_frame(I, It.unsqueeze(0))                    
 
@@ -120,13 +139,15 @@ class FewshotPoseDataset(BaseDataset):
 
         return return_list
 
-    def get_images(self, img_paths, op_paths, dp_paths, i, size, params, crop_coords, ref_face_pts=None):
+    def get_images(self, img_paths, op_paths, dp_paths, ppl_indices, i, size, params, crop_coords, ref_face_pts=None):
         img_path = img_paths[i]
         op_path = op_paths[i]
         dp_path = dp_paths[i]
+        ppl_idx = ppl_indices[i] if ppl_indices is not None else None
                  
         # openpose
-        O, op, crop_coords, face_pts = self.get_image(op_path, size, params, crop_coords, input_type='openpose', ref_face_pts=ref_face_pts)
+        O, op, crop_coords, face_pts = self.get_image(op_path, size, params, crop_coords, input_type='openpose',
+                                                      ppl_idx=ppl_idx, ref_face_pts=ref_face_pts)
         # densepose
         D = self.get_image(dp_path, size, params, crop_coords, input_type='densepose', op=op)
         # concatenate both pose maps
@@ -145,7 +166,7 @@ class FewshotPoseDataset(BaseDataset):
 
         if input_type == 'openpose':
             # get image from openpose keypoints
-            A_img, pose_pts, face_pts = read_keypoints(opt, A_path, size, 0, False,
+            A_img, pose_pts, face_pts = read_keypoints(opt, A_path, size,
                 opt.basic_point_only, opt.remove_face_labels, ppl_idx, ref_face_pts)
 
             # randomly crop the image
@@ -172,8 +193,8 @@ class FewshotPoseDataset(BaseDataset):
         # get the crop coordinates
         if crop_coords is None: 
             offset_max = 0.05
-            random_offset = [np.random.uniform(-offset_max, offset_max), 
-                             np.random.uniform(-offset_max, offset_max)] if self.opt.isTrain else [0,0]
+            random_offset = [random.uniform(-offset_max, offset_max), 
+                             random.uniform(-offset_max, offset_max)] if self.opt.isTrain else [0,0]
             crop_coords = self.get_crop_coords(pose_pts, size, random_offset)
 
         # only crop the person region
@@ -205,7 +226,7 @@ class FewshotPoseDataset(BaseDataset):
         
         # randomly scale the crop size for augmentation
         # final cropped size = person height * scale
-        scale = np.random.uniform(1.4, 1.6) if self.opt.isTrain else 1.5
+        scale = random.uniform(1.4, 1.6) if self.opt.isTrain else 1.5
 
         # bh, bw: half of height / width of final cropped size        
         bh = int(min(h, max(h//4, y_len * scale))) // 2
@@ -221,23 +242,23 @@ class FewshotPoseDataset(BaseDataset):
         return [(x_cen-bw), (y_cen-bh), (x_cen+bw), (y_cen+bh)]
 
     # remove other people in the densepose map by looking at the id in the densemask map
-    def remove_other_ppl(self, A_img, A_path, crop_coords, op):        
-        try:                                      
-            B_path = A_path.replace('densepose', 'densemask').replace('IUV', 'INDS')                    
+    def remove_other_ppl(self, A_img, A_path, crop_coords, op):
+        B_path = A_path.replace('densepose', 'densemask').replace('IUV', 'INDS')
+        if path.exists(B_path):
             B_img = self.read_data(B_path)
             B_img = np.array(B_img.crop(crop_coords))
-            op = np.array(op)  
+            op = np.array(op)
             valid = ((op[:,:,0] > 0) | (op[:,:,1] > 0) | (op[:,:,2] > 0))
             dp_valid = B_img[valid]
             dp_valid = dp_valid[dp_valid != 0]
             if dp_valid.size != 0:
                 inds = np.bincount(dp_valid).argmax()
-                A_np = np.array(A_img)                
-                A_np = A_np * (B_img == inds)
-                #A_np = A_np * np.repeat((B_img == inds)[:,:,np.newaxis], 3, axis=2)
-                A_img = Image.fromarray(A_np) 
-        except:                                                          
-            pass            
+                A_np = np.array(A_img)
+                mask = (B_img == inds)
+                if mask.ndim == 2:
+                    mask = np.repeat(mask[:, :, np.newaxis], 3, axis=2)
+                A_np = A_np * mask
+                A_img = Image.fromarray(A_np)
         return A_img
 
     def __len__(self):        

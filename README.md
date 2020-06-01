@@ -63,7 +63,7 @@ cd few-shot-vid2vid
 
 ### Dataset
 - Pose
-  - We use random dancing videos found on YouTube. We then apply DensePose / OpenPose to estimate the poses for each frame.
+  - We use random dancing videos found on YouTube to crease a YouTube Dancing Dataset. We then apply DensePose / OpenPose to estimate the poses for each frame. The video URLs and code to preprocess them can be found in `data/preprocess`. Please note that the copyright of the dataset belongs to the original owners.
 - Face
   - We use the [FaceForensics](http://niessnerlab.org/projects/roessler2018faceforensics.html) dataset. We then use landmark detection to estimate the face keypoints, and interpolate them to get face edges.
 - Street

@@ -39,7 +39,7 @@ class BaseOptions():
         parser.add_argument('--resize_or_crop', type=str, default='scale_width', help='scaling and cropping of images at load time [resize_and_crop|crop|scale_width|scale_width_and_crop]')
         parser.add_argument('--serial_batches', action='store_true', help='if true, takes images in order to make batches, otherwise takes them randomly')        
         parser.add_argument('--no_flip', action='store_true', help='if specified, do not flip the images for data argumentation') 
-        parser.add_argument('--nThreads', default=2, type=int, help='# threads for loading data')                
+        parser.add_argument('--nThreads', default=4, type=int, help='# threads for loading data')
         parser.add_argument('--max_dataset_size', type=int, default=sys.maxsize, help='Maximum number of samples allowed per dataset. If the dataset directory contains more than max_dataset_size, only a subset is loaded.')
 
          # for displays
@@ -53,7 +53,7 @@ class BaseOptions():
         parser.add_argument('--netG', type=str, default='fewshot', help='selects model to use for netG')
         parser.add_argument('--n_downsample_G', type=int, default=5, help='# of downsamplings in netG')        
         parser.add_argument('--ngf', type=int, default=32, help='# of gen filters in first conv layer')
-        parser.add_argument('--norm_G', type=str, default='spectralspadesyncbatch', help='instance normalization or batch normalization')
+        parser.add_argument('--norm_G', type=str, default='spectralspadeinstance', help='instance normalization or batch normalization')
         parser.add_argument('--conv_ks', type=int, default=3, help='filter size for convolution in main branch')
         parser.add_argument('--embed_ks', type=int, default=1, help='filter size for convolution in embedding network')
         parser.add_argument('--spade_ks', type=int, default=1, help='filter size for convolution in SPADE')
@@ -77,16 +77,15 @@ class BaseOptions():
         parser.add_argument('--n_downsample_F', type=int, default=3, help='number of downsamplings in flow network')
         parser.add_argument('--nff', type=int, default=32, help='# of gen filters in first conv layer')
         parser.add_argument('--n_blocks_F', type=int, default=6, help='number of residual blocks in flow network')
-        parser.add_argument('--norm_F', type=str, default='spectralsyncbatch', help='instance normalization or batch normalization')
-        parser.add_argument('--flow_multiplier', type=int, default=20, help='flow output multiplier')
-        parser.add_argument('--flow_deconv', action='store_true', help='use deconvolution for flow generation')
+        parser.add_argument('--norm_F', type=str, default='spectralinstance', help='instance normalization or batch normalization')
+        parser.add_argument('--flow_multiplier', type=int, default=20, help='flow output multiplier')        
 
         parser.add_argument('--spade_combine', action='store_true', help='use SPADE to combine with warped image instead of linear combination')
         parser.add_argument('--n_sc_layers', type=int, default=2, help='number of layers to use SPADE combination in netG')        
         parser.add_argument('--sc_arch', type=str, default='unet', help='selects model to use for the image embedding network')
-        parser.add_argument('--add_raw_loss', action='store_true', help='add loss to the raw output without combining with the warped image')
+        parser.add_argument('--add_raw_output_loss', action='store_true', help='add loss to the raw output without combining with the warped image')
         parser.add_argument('--sep_flow_prev', action='store_true', help='use separate flow network for prev')
-        parser.add_argument('--sep_warp_embed', action='store_true', help='use separate warp embedding for prev')
+        parser.add_argument('--no_sep_warp_embed', action='store_true', help='do not use separate warp embedding for prev')
 
         # for attention mechanism
         parser.add_argument('--n_shot', type=int, default=1, help='how many reference images')
@@ -98,7 +97,7 @@ class BaseOptions():
         parser.add_argument('--netD_subarch', type=str, default='n_layers', help='(n_layers|resnet_{}down{}blocks)')
         parser.add_argument('--num_D', type=int, default=1, help='number of discriminators to use')
         parser.add_argument('--n_layers_D', type=int, default=4, help='only used if which_model_netD==n_layers')
-        parser.add_argument('--ndf', type=int, default=32, help='# of discrim filters in first conv layer')    
+        parser.add_argument('--ndf', type=int, default=32, help='# of discrim filters in first conv layer')
         parser.add_argument('--norm_D', type=str, default='spectralinstance', help='instance normalization or batch normalization')
         parser.add_argument('--gan_mode', type=str, default='hinge', help='(ls|original|hinge)')        
         parser.add_argument('--add_face_D', action='store_true', help='add additional discriminator for face region')
@@ -106,9 +105,9 @@ class BaseOptions():
 
         parser.add_argument('--lambda_kld', type=float, default=0.0, help='weight for KLD loss')
         parser.add_argument('--lambda_feat', type=float, default=10.0, help='weight for feature matching loss')
-        parser.add_argument('--lambda_temp', type=float, default=2.0, help='weight for temporal loss')
+        parser.add_argument('--lambda_temp', type=float, default=0.0, help='weight for temporal GAN loss')
         parser.add_argument('--lambda_flow', type=float, default=10.0, help='weight for flow')        
-        parser.add_argument('--lambda_weight', type=float, default=10.0, help='weight for flow mask')
+        parser.add_argument('--lambda_mask', type=float, default=10.0, help='weight for flow mask')
         parser.add_argument('--lambda_vgg', type=float, default=10.0, help='weight for vgg loss')        
         parser.add_argument('--lambda_face', type=float, default=10.0, help='weight for face region')        
 
@@ -125,7 +124,7 @@ class BaseOptions():
         parser.add_argument('--init_variance', type=float, default=0.02, help='variance of the initialization distribution')
         
         parser.add_argument('--finetune', action='store_true', help='finetune the generator during inference based on the given reference')
-        parser.add_argument('--fp16', action='store_true')
+        parser.add_argument('--amp', type=str, default='O0', help='AMP level')
         parser.add_argument('--distributed', action='store_true', help='distributed training')
         parser.add_argument('--local_rank', type=int, default=0)
         
@@ -217,9 +216,10 @@ class BaseOptions():
         if opt.isTrain and opt.debug:
             opt.name = 'test'
             opt.ngf = opt.ndf = 4            
-            opt.display_freq = opt.print_freq = opt.niter = opt.niter_decay = opt.niter_step = opt.niter_single = 1        
+            opt.display_freq = opt.print_freq = opt.niter = opt.niter_decay = opt.niter_step = opt.niter_single = 1
             opt.max_dataset_size = opt.batchSize * 8
             opt.save_latest_freq = 100
+            opt.save_epoch_freq = 1
 
         self.opt = opt
         return self.opt

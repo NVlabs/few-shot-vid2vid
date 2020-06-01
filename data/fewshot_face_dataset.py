@@ -5,17 +5,14 @@
 # To view a copy of this license, visit
 # https://nvlabs.github.io/few-shot-vid2vid/License.txt
 import os.path as path
-import glob
-import torchvision.transforms as transforms
-import torch
 from PIL import Image
-import cv2
 import numpy as np
-from skimage import feature
+import random
 
 from data.base_dataset import BaseDataset, get_img_params, get_video_params, get_transform
 from data.image_folder import make_dataset, make_grouped_dataset, check_path_valid
-from data.keypoint2img import interpPoints, drawEdge
+from data.keypoint2img import interp_points, draw_edge
+from util.distributed import master_only_print as print
 
 class FewshotFaceDataset(BaseDataset):
     @staticmethod
@@ -67,8 +64,8 @@ class FewshotFaceDataset(BaseDataset):
     def __getitem__(self, index): 
         opt = self.opt
         if opt.isTrain:
-            np.random.seed()
-            seq_idx = np.random.randint(self.n_of_seqs)
+            # np.random.seed()
+            seq_idx = random.randrange(self.n_of_seqs)
             L_paths = self.L_paths[seq_idx]
             I_paths = self.I_paths[seq_idx]
             ref_L_paths, ref_I_paths = L_paths, I_paths
@@ -168,8 +165,8 @@ class FewshotFaceDataset(BaseDataset):
                     x = keypoints[sub_edge, 0]
                     y = keypoints[sub_edge, 1]
                                     
-                    curve_x, curve_y = interpPoints(x, y) # interp keypoints to get the curve shape                    
-                    drawEdge(im_edges, curve_x, curve_y, bw=self.bw)        
+                    curve_x, curve_y = interp_points(x, y) # interp keypoints to get the curve shape
+                    draw_edge(im_edges, curve_x, curve_y, bw=self.bw)
         input_tensor = transform_L(Image.fromarray(im_edges))
         return input_tensor
 
@@ -200,12 +197,12 @@ class FewshotFaceDataset(BaseDataset):
             h, w = crop_size[0] / 2, crop_size[1] / 2
         if self.opt.isTrain and self.fix_crop_pos:
             offset_max = 0.2
-            offset = [np.random.uniform(-offset_max, offset_max), 
-                      np.random.uniform(-offset_max, offset_max)]
+            offset = [random.uniform(-offset_max, offset_max), 
+                      random.uniform(-offset_max, offset_max)]
             if for_ref:
                 scale_max = 0.2
-                self.scale = [np.random.uniform(1 - scale_max, 1 + scale_max), 
-                              np.random.uniform(1 - scale_max, 1 + scale_max)]                
+                self.scale = [random.uniform(1 - scale_max, 1 + scale_max), 
+                              random.uniform(1 - scale_max, 1 + scale_max)]
             w *= self.scale[0]
             h *= self.scale[1]
             x_cen += int(offset[0]*w)

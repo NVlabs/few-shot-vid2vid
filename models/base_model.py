@@ -11,6 +11,7 @@ from util.visualizer import Visualizer
 import models.networks as networks
 from util.distributed import master_only_print as print
 
+
 class BaseModel(torch.nn.Module):
     def name(self):
         return 'BaseModel'
@@ -213,7 +214,7 @@ class BaseModel(torch.nn.Module):
 
         # make model temporal by generating multiple frames
         if (not opt.isTrain or start_epoch > opt.niter_single) and opt.n_frames_G > 1:
-            self.make_temporal_model() 
+            self.init_temporal_model()
 
     def save_networks(self, which_epoch):
         self.save_network(self.netG, 'G', which_epoch, self.gpu_ids)        
@@ -255,10 +256,10 @@ class BaseModel(torch.nn.Module):
         Visualizer.vis_print(self.opt, 'update learning rate: %f -> %f' % (self.old_lr, new_lr))
         self.old_lr = new_lr
 
-    def make_temporal_model(self):
+    def init_temporal_model(self):
         opt = self.opt
         self.temporal = True
-        self.netG.set_flow_prev()
+        self.netG.init_temporal_network()
         self.netG.cuda()
 
         if opt.isTrain:

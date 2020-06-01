@@ -24,13 +24,12 @@ class FlowNet(BaseModel):
         from .networks.flownet2_pytorch.utils import tools as flownet2_tools
         from .networks.flownet2_pytorch.networks.resample2d_package.resample2d import Resample2d                
 
-        self.flowNet = flownet2_tools.module_to_dict(flownet2_models)['FlowNet2']().cuda(self.gpu_ids[0])        
-        checkpoint = torch.load('models/networks/flownet2_pytorch/FlowNet2_checkpoint.pth.tar')
+        self.flowNet = flownet2_tools.module_to_dict(flownet2_models)['FlowNet2']().cuda()
+        checkpoint = torch.load('models/networks/flownet2_pytorch/FlowNet2_checkpoint.pth.tar', map_location=torch.device('cpu'))
         self.flowNet.load_state_dict(checkpoint['state_dict'])
         self.flowNet.eval() 
         self.resample = Resample2d()
-        self.downsample = torch.nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
-        self.random_flow_offset = hasattr(opt, 'random_flow_offset') and opt.random_flow_offset
+        self.downsample = torch.nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)        
 
     def forward(self, data_list, epoch=0, dummy_bs=0):
         if data_list[0].get_device() == 0:                
@@ -82,26 +81,3 @@ class FlowNet(BaseModel):
         
     def norm(self, t):
         return torch.sum(t*t, dim=1, keepdim=True)   
-
-def resample(image, flow):
-    b, c, h, w = image.size()
-    grid = get_grid(b, h, w)                
-    flow = torch.cat([flow[:, 0:1, :, :] / ((w - 1.0) / 2.0), flow[:, 1:2, :, :] / ((h - 1.0) / 2.0)], dim=1)        
-    final_grid = (grid + flow).permute(0, 2, 3, 1)
-    output = torch.nn.functional.grid_sample(image, final_grid, mode='bilinear', padding_mode='border')
-    return output
-
-def get_grid(batchsize, rows, cols):
-    hor = torch.linspace(-1.0, 1.0, cols)
-    hor.requires_grad = False
-    hor = hor.view(1, 1, 1, cols)
-    hor = hor.expand(batchsize, 1, rows, cols)
-    ver = torch.linspace(-1.0, 1.0, rows)
-    ver.requires_grad = False
-    ver = ver.view(1, 1, rows, 1)
-    ver = ver.expand(batchsize, 1, rows, cols)
-
-    t_grid = torch.cat([hor, ver], 1)
-    t_grid.requires_grad = False
-
-    return t_grid.cuda()

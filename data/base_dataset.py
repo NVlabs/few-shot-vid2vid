@@ -1,9 +1,5 @@
-# Copyright (c) 2019, NVIDIA Corporation. All rights reserved.
-#
-# This work is made available
-# under the Nvidia Source Code License (1-way Commercial).
-# To view a copy of this license, visit
-# https://nvlabs.github.io/few-shot-vid2vid/License.txt
+### Copyright (C) 2019 NVIDIA Corporation. All rights reserved. 
+### Licensed under the Nvidia Source Code License.
 
 from PIL import Image
 import numpy as np
@@ -18,6 +14,7 @@ class BaseDataset(data.Dataset):
         super(BaseDataset, self).__init__()
         self.L = self.I = self.Lr = self.Ir = None
         self.n_frames_total = 1  # current number of frames to train in a single iteration
+        self.use_lmdb = False
 
     def name(self):
         return 'BaseDataset'
@@ -29,9 +26,17 @@ class BaseDataset(data.Dataset):
             self.n_frames_total = min(seq_len_max, self.opt.n_frames_total * (2**ratio))
             print('--- Updating training sequence length to %d ---' % self.n_frames_total)
 
-    def read_data(self, path, data_type='img'):
+    def read_data(self, path, lmdb=None, data_type='img'):
         is_img = data_type == 'img'
-        if is_img:
+        if self.use_lmdb and lmdb is not None:
+            img, _ = lmdb.getitem_by_path(path.encode(), is_img)
+            if is_img and len(img.mode) == 3:
+                b, g, r = img.split()
+                img = Image.merge("RGB", (r, g, b))
+            elif data_type == 'np':            
+                img = img.decode()
+                img = np.array([[int(j) for j in i.split(',')] for i in img.splitlines()])
+        elif is_img:
             img = Image.open(path)
         elif data_type == 'np':
             img = np.loadtxt(path, delimiter=',')
@@ -46,15 +51,13 @@ class BaseDataset(data.Dataset):
         else:
             return img.crop((min_x, min_y, max_x, max_y))
 
-    def concat_frame(self, A, Ai):
-        if not self.opt.isTrain:
-            return Ai
+    def concat_frame(self, A, Ai, n=100):
+        if A is None or Ai.shape[0] >= n: return Ai[-n:]
+        else: return torch.cat([A, Ai])[-n:]     
 
-        if A is None:
-            A = Ai
-        else:
-            A = torch.cat([A, Ai])
-        return A
+    def concat(self, tensors, dim=0):
+        tensors = [t for t in tensors if t is not None]
+        return torch.cat(tensors, dim)
 
 def get_img_params(opt, size):
     w, h = size
@@ -67,7 +70,7 @@ def get_img_params(opt, size):
         if 'scale_width' in opt.resize_or_crop:
             new_w = opt.loadSize             
         elif 'random_scale' in opt.resize_or_crop:
-            new_w = random.randint(int(opt.fineSize), int(1.2*opt.fineSize))
+            new_w = random.randrange(int(opt.fineSize), int(1.2*opt.fineSize))
         new_h = int(new_w * h) // w      
     if 'crop' not in opt.resize_or_crop:
         new_h = int(new_w // opt.aspect_ratio)
@@ -81,8 +84,8 @@ def get_img_params(opt, size):
         pos_x = (new_w - size_x) // 2
         pos_y = (new_h - size_y) // 2    
     else:               # crop random region
-        pos_x = random.randint(0, np.maximum(0, new_w - size_x))
-        pos_y = random.randint(0, np.maximum(0, new_h - size_y))        
+        pos_x = random.randrange(np.maximum(1, new_w - size_x))
+        pos_y = random.randrange(np.maximum(1, new_h - size_y))
 
     # for color augmentation
     h_b = random.uniform(-30, 30)
@@ -99,19 +102,19 @@ def get_video_params(opt, n_frames_total, cur_seq_len, index):
     if opt.isTrain:                
         n_frames_total = min(cur_seq_len, n_frames_total)             # total number of frames to load
         max_t_step = min(opt.max_t_step, (cur_seq_len-1) // max(1, (n_frames_total-1)))        
-        t_step = np.random.randint(max_t_step) + 1                    # spacing between neighboring sampled frames                
+        t_step = random.randrange(max_t_step) + 1                     # spacing between neighboring sampled frames                
         
         offset_max = max(1, cur_seq_len - (n_frames_total-1)*t_step)  # maximum possible frame index for the first frame
         if 'pose' in opt.dataset_mode:
             start_idx = index % offset_max                            # offset for the first frame to load
             max_range, min_range = 60, 14                             # range for possible reference frames
         else:
-            start_idx = np.random.randint(offset_max)                 # offset for the first frame to load        
+            start_idx = random.randrange(offset_max)                  # offset for the first frame to load        
             max_range, min_range = 300, 14                            # range for possible reference frames
         
         ref_range = list(range(max(0, start_idx - max_range), max(1, start_idx - min_range))) \
                   + list(range(min(start_idx + min_range, cur_seq_len - 1), min(start_idx + max_range, cur_seq_len)))
-        ref_indices = np.random.choice(ref_range, size=opt.n_shot)    # indices for reference frames
+        ref_indices = random.sample(ref_range, opt.n_shot)       # indices for reference frames
 
     else:
         n_frames_total = 1

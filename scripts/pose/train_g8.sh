@@ -7,4 +7,4 @@
 
 python train.py --name pose --dataset_mode fewshot_pose \
 --adaptive_spade --warp_ref --spade_combine --remove_face_labels --add_face_D \
---gpu_ids 0,1,2,3,4,5,6,7 --batchSize 30 --nThreads 16 --continue_train 
+--gpu_ids 0,1,2,3,4,5,6,7 --batchSize 30 --nThreads 32 --niter 100 --niter_single 100 --continue_train 

@@ -5,10 +5,12 @@
 # To view a copy of this license, visit
 # https://nvlabs.github.io/few-shot-vid2vid/License.txt
 import torch
+import numpy as np
 from util.image_pool import ImagePool
 from models.base_model import BaseModel
 import models.networks as networks
 from models.input_process import *
+from models.networks.base_network import resample
 
 class LossCollector(BaseModel):
     def name(self):
@@ -38,7 +40,7 @@ class LossCollector(BaseModel):
         
             # Names so we can breakout loss
             self.loss_names_G = ['G_GAN', 'G_GAN_Feat', 'G_VGG', 'Gf_GAN', 'Gf_GAN_feat', 'GT_GAN', 'GT_GAN_Feat', 
-                                 'F_Flow', 'F_Warp', 'W']
+                                 'F_Flow', 'F_Warp', 'F_Mask']
             self.loss_names_D = ['D_real', 'D_fake', 'Df_real', 'Df_fake', 'DT_real', 'DT_fake'] 
             self.loss_names = self.loss_names_G + self.loss_names_D
 
@@ -122,94 +124,100 @@ class LossCollector(BaseModel):
         opt = self.opt
         if not opt.no_vgg_loss:
             if fake_image is not None:
-                loss_G_VGG = self.criterionVGG(fake_image, tgt_image) * opt.lambda_vgg
+                loss_G_VGG = self.criterionVGG(fake_image, tgt_image)
             if fake_raw_image is not None:
-                loss_G_VGG += self.criterionVGG(fake_raw_image, tgt_image * fg_mask_union) * opt.lambda_vgg
-        return loss_G_VGG
+                loss_G_VGG += self.criterionVGG(fake_raw_image, tgt_image * fg_mask_union)
+        return loss_G_VGG * opt.lambda_vgg
 
-    def compute_flow_losses(self, flow, warped_image, tgt_image, flow_gt, conf_gt, fg_mask, tgt_label, ref_label, netG):                    
-        loss_F_Flow_r, loss_F_Warp_r = self.compute_flow_loss(flow[0], warped_image[0], tgt_image, flow_gt[0], conf_gt[0], fg_mask)
-        loss_F_Flow_p, loss_F_Warp_p = self.compute_flow_loss(flow[1], warped_image[1], tgt_image, flow_gt[1], conf_gt[1], fg_mask)
+    def compute_flow_losses(self, flow, warped_image, tgt_image, flow_gt, flow_conf_gt, fg_mask, tgt_label, ref_label, ref_image, netG):
+        loss_F_Flow_r, loss_F_Warp_r = self.compute_flow_loss(flow[0], warped_image[0], tgt_image, flow_gt[0], flow_conf_gt[0], fg_mask)
+        loss_F_Flow_p, loss_F_Warp_p = self.compute_flow_loss(flow[1], warped_image[1], tgt_image, flow_gt[1], flow_conf_gt[1], fg_mask)
         loss_F_Flow = loss_F_Flow_p + loss_F_Flow_r
         loss_F_Warp = loss_F_Warp_p + loss_F_Warp_r
+        lambda_flow = self.opt.lambda_flow
         
         body_mask_diff = None
         if self.opt.isTrain and self.pose and flow[0] is not None:            
             body_mask = get_part_mask(tgt_label[:,:,2])
             ref_body_mask = get_part_mask(ref_label[:,2].unsqueeze(1)).expand_as(body_mask)
             body_mask, ref_body_mask = self.reshape([body_mask, ref_body_mask])            
-            ref_body_mask_warp = netG.resample(ref_body_mask, flow[0])
-            loss_F_Warp += self.criterionFeat(ref_body_mask_warp, body_mask) * self.opt.lambda_flow
+            ref_body_mask_warp = resample(ref_body_mask, flow[0])
+            loss_F_Warp += self.criterionFeat(ref_body_mask_warp, body_mask)
 
             if self.has_fg:
                 fg_mask, ref_fg_mask = get_fg_mask(self.opt, [tgt_label, ref_label], True)
-                ref_fg_mask_warp = netG.resample(ref_fg_mask, flow[0])
-                loss_F_Warp += self.criterionFeat(ref_fg_mask_warp, fg_mask) * self.opt.lambda_flow
+                ref_fg_mask_warp = resample(ref_fg_mask, flow[0])
+                loss_F_Warp += self.criterionFeat(ref_fg_mask_warp, fg_mask)
 
             body_mask_diff = torch.sum(abs(ref_body_mask_warp - body_mask), dim=1, keepdim=True)
-        return loss_F_Flow, loss_F_Warp, body_mask_diff
+        return loss_F_Flow * lambda_flow, loss_F_Warp * lambda_flow, body_mask_diff
 
-    def compute_flow_loss(self, flow, warped_image, tgt_image, flow_gt, conf_gt, fg_mask):
-        lambda_flow = self.opt.lambda_flow
+    def compute_flow_loss(self, flow, warped_image, tgt_image, flow_gt, flow_conf_gt, fg_mask):        
         loss_F_Flow, loss_F_Warp = self.Tensor(1).fill_(0), self.Tensor(1).fill_(0)
         if self.opt.isTrain and flow is not None:
             if flow_gt is not None and self.opt.n_shot == 1: # only computed ground truth flow for first reference image                  
-                loss_F_Flow = self.criterionFlow(flow, flow_gt, conf_gt * fg_mask) * lambda_flow                
-            loss_F_Warp = self.criterionFeat(warped_image, tgt_image) * lambda_flow
+                loss_F_Flow = self.criterionFlow(flow, flow_gt, flow_conf_gt * fg_mask)
+            loss_F_Warp = self.criterionFeat(warped_image, tgt_image)
         return loss_F_Flow, loss_F_Warp
 
-    def compute_weight_losses(self, weight, fake_image, warped_image, tgt_label, tgt_image, 
-            fg_mask, ref_fg_mask, body_mask_diff):         
-        loss_W = self.Tensor(1).fill_(0)
-        loss_W += self.compute_weight_loss(weight[0], warped_image[0], tgt_image)        
-        loss_W += self.compute_weight_loss(weight[1], warped_image[1], tgt_image)
+    def compute_mask_losses(self, flow_mask, fake_image, warped_image, tgt_label, tgt_image, fake_raw_image,
+            fg_mask, ref_fg_mask, body_mask_diff):        
+        fake_raw_image = fake_raw_image[:,-1] if fake_raw_image is not None else None        
+        loss_mask = self.Tensor(1).fill_(0)
+        loss_mask += self.compute_mask_loss(flow_mask[0], warped_image[0], tgt_image, fake_image[:,-1], fake_raw_image)
+        loss_mask += self.compute_mask_loss(flow_mask[1], warped_image[1], tgt_image, fake_image[:,-1], fake_raw_image)
         
         opt = self.opt
-        if opt.isTrain and self.pose and self.warp_ref:
-            weight_ref = weight[0]
+        if opt.isTrain and self.pose and self.warp_ref:            
+            flow_mask_ref = flow_mask[0]
             b, t, _, h, w = tgt_label.size()
-            dummy0, dummy1 = torch.zeros_like(weight_ref), torch.ones_like(weight_ref)
+            dummy0, dummy1 = torch.zeros_like(flow_mask_ref), torch.ones_like(flow_mask_ref)
             face_mask = get_face_mask(tgt_label[:,:,2]).view(-1, 1, h, w)
             face_mask = torch.nn.AvgPool2d(15, padding=7, stride=1)(face_mask)                    
-            loss_W += self.criterionFlow(weight_ref, dummy0, face_mask) * (opt.lambda_weight if opt.finetune else 100)
+            loss_mask += self.criterionFlow(flow_mask_ref, dummy0, face_mask)
             if opt.spade_combine:                
-                loss_W += self.criterionFlow(fake_image[:,-1], warped_image[0], face_mask)
+                loss_mask += self.criterionFlow(fake_image[:,-1], warped_image[0].detach(), face_mask)
 
             fg_mask_diff = ((ref_fg_mask - fg_mask) > 0).float()            
-            loss_W += self.criterionFlow(weight_ref, dummy1, fg_mask_diff) * opt.lambda_weight
-            loss_W += self.criterionFlow(weight_ref, dummy1, body_mask_diff) * opt.lambda_weight
-        return loss_W
+            loss_mask += self.criterionFlow(flow_mask_ref, dummy1, fg_mask_diff)
+            loss_mask += self.criterionFlow(flow_mask_ref, dummy1, body_mask_diff)
 
-    def compute_weight_loss(self, weight, warped_image, tgt_image):
-        loss_W = 0
-        if self.opt.isTrain and weight is not None:
+        return loss_mask * opt.lambda_mask
+
+    def compute_mask_loss(self, flow_mask, warped_image, tgt_image, fake_image, fake_raw_image):
+        loss_mask = 0
+        if self.opt.isTrain and flow_mask is not None:
+            dummy0 = torch.zeros_like(flow_mask)
+            dummy1 = torch.ones_like(flow_mask)            
+            
+            # Compute the confidence map based on L1 distance between warped and GT image.
             img_diff = torch.sum(abs(warped_image - tgt_image), dim=1, keepdim=True)
-            conf = torch.clamp(1 - img_diff, 0, 1)        
-                               
-            dummy0, dummy1 = torch.zeros_like(weight), torch.ones_like(weight)        
-            loss_W = self.criterionFlow(weight, dummy0, conf) * self.opt.lambda_weight
-            loss_W += self.criterionFlow(weight, dummy1, 1-conf) * self.opt.lambda_weight
-        return loss_W
+            conf = torch.clamp(1 - img_diff, 0, 1)
+
+            # Force mask value to be small if warped image is similar to GT, and vice versa. 
+            loss_mask = self.criterionFlow(flow_mask, dummy0, conf)
+            loss_mask += self.criterionFlow(flow_mask, dummy1, 1 - conf)
+
+        return loss_mask
 
     def GAN_matching_loss(self, pred_real, pred_fake, for_discriminator=False):
         loss_G_GAN_Feat = self.Tensor(1).fill_(0)
         if not for_discriminator and not self.opt.no_ganFeat_loss:            
-            feat_weights = 1
             num_D = len(pred_fake)
-            D_weights = 1.0 / num_D            
+            D_masks = 1.0 / num_D            
             for i in range(num_D):
                 for j in range(len(pred_fake[i])-1):
-                    unweighted_loss = self.criterionFeat(pred_fake[i][j], pred_real[i][j].detach())
-                    loss_G_GAN_Feat += D_weights * feat_weights * unweighted_loss * self.opt.lambda_feat            
-        return loss_G_GAN_Feat
+                    loss = self.criterionFeat(pred_fake[i][j], pred_real[i][j].detach())
+                    loss_G_GAN_Feat += D_masks * loss
+        return loss_G_GAN_Feat * self.opt.lambda_feat
 
-def loss_backward(opt, losses, optimizer):    
+def loss_backward(opt, losses, optimizer, loss_id):
     losses = [ torch.mean(x) if not isinstance(x, int) else x for x in losses ]
-    loss = sum(losses)        
-    optimizer.zero_grad()                
-    if opt.fp16:
+    loss = sum(losses)
+    optimizer.zero_grad()
+    if opt.amp != 'O0':
         from apex import amp
-        with amp.scale_loss(loss, optimizer) as scaled_loss: 
+        with amp.scale_loss(loss, optimizer, loss_id=loss_id) as scaled_loss:
             scaled_loss.backward()
     else:
         loss.backward()

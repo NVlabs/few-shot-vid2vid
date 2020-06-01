@@ -23,21 +23,21 @@ class SPADE(nn.Module):
             mlp_beta = nn.Conv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
             
             if not params_free or (i != 0):
-                s = str(i+1) if i > 0 else ''                                
+                s = str(i+1) if i > 0 else ''
                 setattr(self, 'mlp_gamma%s' % s, mlp_gamma)
                 setattr(self, 'mlp_beta%s' % s, mlp_beta)
 
         if 'batch' in norm:
-            self.batch_norm = SynchronizedBatchNorm2d(norm_nc, affine=False)
+            self.norm = SynchronizedBatchNorm2d(norm_nc, affine=False)
         else:
-            self.batch_norm = nn.InstanceNorm2d(norm_nc, affine=False)
+            self.norm = nn.InstanceNorm2d(norm_nc, affine=False)
 
     def forward(self, x, maps, weights=None):
         if not isinstance(maps, list): maps = [maps]
-        out = self.batch_norm(x)
+        out = self.norm(x)
         for i in range(len(maps)):
             if maps[i] is None: continue
-            m = F.interpolate(maps[i], size=x.size()[2:], mode='bilinear')
+            m = F.interpolate(maps[i], size=x.size()[2:])
             if weights is None or (i != 0):
                 s = str(i+1) if i > 0 else ''                                  
                 gamma = getattr(self, 'mlp_gamma%s' % s)(m)
@@ -46,7 +46,7 @@ class SPADE(nn.Module):
                 j = min(i, len(weights[0])-1)
                 gamma = batch_conv(m, weights[0][j])
                 beta = batch_conv(m, weights[1][j])
-            out = out * (1 + gamma) + beta                                  
+            out = out * (1 + gamma) + beta
         return out
         
 def get_nonspade_norm_layer(opt, norm_type='instance'):
@@ -77,7 +77,7 @@ def get_nonspade_norm_layer(opt, norm_type='instance'):
         elif subnorm_type == 'syncbatch':
             norm_layer = SynchronizedBatchNorm2d(get_out_channel(layer), affine=True)
         elif subnorm_type == 'instance':
-            norm_layer = nn.InstanceNorm2d(get_out_channel(layer), affine=False)
+            norm_layer = nn.InstanceNorm2d(get_out_channel(layer), affine=True)
         else:
             raise ValueError('normalization layer %s is not recognized' % subnorm_type)
 

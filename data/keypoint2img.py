@@ -9,10 +9,12 @@ from PIL import Image
 import numpy as np
 import json
 import glob
+import random
 from scipy.optimize import curve_fit
 import warnings
 
-def read_keypoints(opt, json_input, size, random_drop_prob=0, distort_points=False, basic_point_only=False, remove_face_labels=False, 
+# Read json file and returns the drawn image.
+def read_keypoints(opt, json_input, size, basic_point_only=False, remove_face_labels=False,
                    ppl_idx=None, ref_pts=None):
     if type(json_input) == str:
         with open(json_input, encoding='utf-8') as f:
@@ -45,11 +47,12 @@ def read_keypoints(opt, json_input, size, random_drop_prob=0, distort_points=Fal
         y_len = y.max() - y.min()   
         if y_len > y_len_max:
             y_len_max = y_len            
-            pose_img = connect_keypoints(opt, pts, edge_lists, size, random_drop_prob, distort_points, basic_point_only, remove_face_labels)
+            pose_img = connect_keypoints(opt, pts, edge_lists, size, basic_point_only, remove_face_labels)
             pose_keypoints = pose_pts
             face_keypoints = pts[1]
     return pose_img, pose_keypoints, face_keypoints
 
+# Use only the valid keypoints in the list.
 def extract_valid_keypoints(pts, edge_lists):
     pose_edge_list, _, hand_edge_list, _, face_list = edge_lists
     p = pts.shape[0]
@@ -71,71 +74,70 @@ def extract_valid_keypoints(pts, edge_lists):
         
     return output
 
-def connect_keypoints(opt, pts, edge_lists, size, random_drop_prob, distort_points, basic_point_only, remove_face_labels):
+# Draw edges by connecting the keypoints.
+def connect_keypoints(opt, pts, edge_lists, size, basic_point_only, remove_face_labels):
     pose_pts, face_pts, hand_pts_l, hand_pts_r = pts
     w, h = size        
     body_edges = np.zeros((h, w, 3), np.uint8)
-    pose_edge_list, pose_color_list, hand_edge_list, hand_color_list, face_list = edge_lists
-    
-    if distort_points:
-        # add random noise to keypoints
-        pose_pts[[0,15,16,17,18], :] += np.clip(5 * np.random.randn(5,2), -10, 10) * (pose_pts[[0,15,16,17,18], :] != 0)
-        face_pts[:,0] += np.clip(2 * np.random.randn(), -5, 5) * (face_pts[:,0] != 0)
-        face_pts[:,1] += np.clip(2 * np.random.randn(), -5, 5) * (face_pts[:,1] != 0)
+    pose_edge_list, pose_color_list, hand_edge_list, hand_color_list, face_list = edge_lists    
 
     ### pose    
     h = int(pose_pts[:, 1].max() - pose_pts[:, 1].min())
-    bw = np.random.randint(2, 5) if opt.isTrain else max(1, h//150)    
+    bw = random.randrange(2, 5) if opt.isTrain else max(1, h//150)    
     for i, edge in enumerate(pose_edge_list):
         x, y = pose_pts[edge, 0], pose_pts[edge, 1]
-        if (np.random.rand() > random_drop_prob) and (0 not in x):
-            curve_x, curve_y = interpPoints(x, y)                                        
-            drawEdge(body_edges, curve_x, curve_y, bw=bw, color=pose_color_list[i], draw_end_points=True)
+        if (0 not in x):
+            curve_x, curve_y = interp_points(x, y)                                        
+            draw_edge(body_edges, curve_x, curve_y, bw=bw, color=pose_color_list[i],
+                      draw_end_points=True)
 
     if not basic_point_only:
         ### hand   
-        bw = np.random.randint(1, 3) if opt.isTrain else max(1, h//450)    
-        for hand_pts in [hand_pts_l, hand_pts_r]:     # for left and right hand
-            if np.random.rand() > random_drop_prob:
-                for i, edge in enumerate(hand_edge_list): # for each finger
-                    for j in range(0, len(edge)-1):       # for each part of the finger
-                        sub_edge = edge[j:j+2] 
-                        x, y = hand_pts[sub_edge, 0], hand_pts[sub_edge, 1]                    
-                        if 0 not in x:
-                            line_x, line_y = interpPoints(x, y)                                        
-                            drawEdge(body_edges, line_x, line_y, bw=bw, color=hand_color_list[i], draw_end_points=False)
+        bw = random.randrange(1, 3) if opt.isTrain else max(1, h//450)    
+        for hand_pts in [hand_pts_l, hand_pts_r]:     # for left and right hand            
+            for i, edge in enumerate(hand_edge_list): # for each finger
+                for j in range(0, len(edge)-1):       # for each part of the finger
+                    sub_edge = edge[j:j+2] 
+                    x, y = hand_pts[sub_edge, 0], hand_pts[sub_edge, 1]                    
+                    if 0 not in x:
+                        line_x, line_y = interp_points(x, y)                                        
+                        draw_edge(body_edges, line_x, line_y, bw=bw,
+                                  color=hand_color_list[i], draw_end_points=False)
 
         ### face
         edge_len = 2
-        bw = np.random.randint(1, 3) if opt.isTrain else max(1, h//450)
-        if not remove_face_labels and (np.random.rand() > random_drop_prob):
+        bw = random.randrange(1, 3) if opt.isTrain else max(1, h//450)
+        if not remove_face_labels:
             for edge_list in face_list:
                 for edge in edge_list:
                     for i in range(0, max(1, len(edge)-1), edge_len-1):             
                         sub_edge = edge[i:i+edge_len]
                         x, y = face_pts[sub_edge, 0], face_pts[sub_edge, 1]
                         if 0 not in x:
-                            curve_x, curve_y = interpPoints(x, y)
-                            drawEdge(body_edges, curve_x, curve_y, bw=bw, draw_end_points=False)
+                            curve_x, curve_y = interp_points(x, y)
+                            draw_edge(body_edges, curve_x, curve_y, bw=bw, draw_end_points=False)
 
     return body_edges
 
+# Normalize keypoints according to the reference keypoints.
 def normalize_keypoints(keypoints_all, keypoints_ref, face_ratio):    
     face_ratio = normalize_faces([keypoints_all[1]], keypoints_ref, face_ratio)
     return keypoints_all, face_ratio
 
+# Normalize face keypoints according to the reference keypoints.
 def normalize_faces(all_keypoints, keypoints_ref, face_ratio):
     central_keypoints = [8]
     face_centers = [np.mean(keypoints[central_keypoints,:], axis=0) for keypoints in all_keypoints]    
-    all_keypoints = [keypoints for keypoints, face_center in zip(all_keypoints, face_centers) if face_center[0] != 0]
+    all_keypoints = [keypoints for keypoints, face_center in
+                     zip(all_keypoints, face_centers) if face_center[0] != 0]
     face_centers = [face_center for face_center in face_centers if face_center[0] != 0]
     if len(all_keypoints) == 0: return
 
-    part_list = [[0,16], [1,15], [2,14], [3,13], [4,12], [5,11], [6,10], [7,9, 8], # face 17
-                 [17,26], [18,25], [19,24], [20,23], [21,22], # eyebrows 10
-                 [27], [28], [29], [30], [31,35], [32,34], [33], # nose 9
-                 [36,45], [37,44], [38,43], [39,42], [40,47], [41,46], # eyes 12
-                 [48,54], [49,53], [50,52], [51], [55,59], [56,58], [57], # mouth 12                 
+    part_list = [[0,16], [1,15], [2,14], [3,13], [4,12], [5,11], [6,10], [7,9, 8], # face (17)
+                 [17,26], [18,25], [19,24], [20,23], [21,22], # eyebrows (10)
+                 [27], [28], [29], [30], [31,35], [32,34], [33], # nose (9)
+                 [36,45], [37,44], [38,43], [39,42], [40,47], [41,46], # eyes (12)
+                 [48,54], [49,53], [50,52], [51], [55,59], [56,58], [57], # mouth (12)
                 ]
 
     if face_ratio is None:
@@ -145,7 +147,7 @@ def normalize_faces(all_keypoints, keypoints_ref, face_ratio):
 
         valid = (keypoints_ref[:,0] != 0) & (all_keypoints[0][:,0] != 0)
         ref_img_scale = keypoints_ref[valid,0].max() - keypoints_ref[valid,0].min()        
-        img_scale = ref_img_scale / (all_keypoints[0][valid,0].max() - all_keypoints[0][valid,0].min())        
+        img_scale = ref_img_scale / (all_keypoints[0][valid,0].max() - all_keypoints[0][valid,0].min())
     else:
         dist_scale_x, dist_scale_y = face_ratio
 
@@ -186,7 +188,8 @@ def normalize_faces(all_keypoints, keypoints_ref, face_ratio):
                 pts_cen = np.mean(pts, axis=0)                 
 
                 if 28 in pts_idx_k: pts_ori = pts
-                pts = (pts - pts_cen) * dist_scale_x[i] + (pts_cen - face_cen) * dist_scale_y[i] + face_cen
+                pts = (pts - pts_cen) * dist_scale_x[i] + (pts_cen - face_cen) \
+                      * dist_scale_y[i] + face_cen
                 if 28 in pts_idx_k: pts_diff[k] = np.mean(pts_ori - pts, axis=0)
                 all_keypoints[k][pts_idx_k] = pts
             else:
@@ -198,6 +201,7 @@ def normalize_faces(all_keypoints, keypoints_ref, face_ratio):
 
     return [dist_scale_x, dist_scale_y]
 
+# Define the list of keypoints that should be connected to form the edges.
 def define_edge_lists(basic_point_only):
     ### pose
     pose_edge_list = [        
@@ -259,7 +263,8 @@ def func(x, a, b, c):
 def linear(x, a, b):
     return a * x + b
 
-def setColor(im, yy, xx, color):
+# Set a pixel to the given color.
+def set_color(im, yy, xx, color):
     if len(im.shape) == 3:
         if (im[yy, xx] == 0).all():            
             im[yy, xx, 0], im[yy, xx, 1], im[yy, xx, 2] = color[0], color[1], color[2]            
@@ -270,7 +275,8 @@ def setColor(im, yy, xx, color):
     else:
         im[yy, xx] = color[0]
 
-def drawEdge(im, x, y, bw=1, color=(255,255,255), draw_end_points=False):
+# Set colors given a list of x and y coordinates for the edge.
+def draw_edge(im, x, y, bw=1, color=(255,255,255), draw_end_points=False):
     if x is not None and x.size:
         h, w = im.shape[0], im.shape[1]
         # edge
@@ -278,7 +284,7 @@ def drawEdge(im, x, y, bw=1, color=(255,255,255), draw_end_points=False):
             for j in range(-bw, bw):
                 yy = np.maximum(0, np.minimum(h-1, y+i))
                 xx = np.maximum(0, np.minimum(w-1, x+j))
-                setColor(im, yy, xx, color)
+                set_color(im, yy, xx, color)
 
         # edge endpoints
         if draw_end_points:
@@ -287,11 +293,12 @@ def drawEdge(im, x, y, bw=1, color=(255,255,255), draw_end_points=False):
                     if (i**2) + (j**2) < (4 * bw**2):
                         yy = np.maximum(0, np.minimum(h-1, np.array([y[0], y[-1]])+i))
                         xx = np.maximum(0, np.minimum(w-1, np.array([x[0], x[-1]])+j))
-                        setColor(im, yy, xx, color)
+                        set_color(im, yy, xx, color)
 
-def interpPoints(x, y):    
+# Given the start and end points, interpolate to get a line.
+def interp_points(x, y):    
     if abs(x[:-1] - x[1:]).max() < abs(y[:-1] - y[1:]).max():
-        curve_y, curve_x = interpPoints(y, x)
+        curve_y, curve_x = interp_points(y, x)
         if curve_y is None:
             return None, None
     else:        

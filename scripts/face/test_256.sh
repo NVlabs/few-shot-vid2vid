@@ -5,6 +5,4 @@
 # To view a copy of this license, visit
 # https://nvlabs.github.io/few-shot-vid2vid/License.txt
 
-python train.py --name pose --dataset_mode fewshot_pose \
---adaptive_spade --warp_ref --spade_combine --remove_face_labels --add_face_D \
---batchSize 2 --niter 100 --niter_single 100 --continue_train 
+python test.py --name face_256 --dataset_mode fewshot_face --adaptive_spade --warp_ref --spade_combine

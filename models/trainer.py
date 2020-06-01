@@ -6,6 +6,7 @@
 # https://nvlabs.github.io/few-shot-vid2vid/License.txt
 import os
 import numpy as np
+import torch
 import time
 from collections import OrderedDict
 import fractions
@@ -15,7 +16,7 @@ def lcm(a,b): return abs(a * b)/fractions.gcd(a,b) if a and b else 0
 import util.util as util
 from util.visualizer import Visualizer
 from models.models import save_models, update_models
-from util.distributed import master_only, is_master
+from util.distributed import master_only, is_master, get_world_size
 from util.distributed import master_only_print as print
 
 class Trainer():    
@@ -38,12 +39,16 @@ class Trainer():
         self.dataset_size = len(data_loader)
         self.visualizer = Visualizer(opt)        
 
-    def start_of_iter(self):
+    def start_of_iter(self, data):
         if self.total_steps % self.print_freq == 0:
             self.iter_start_time = time.time()
         self.total_steps += self.opt.batchSize
         self.epoch_iter += self.opt.batchSize 
         self.save = self.total_steps % self.opt.display_freq == 0            
+        for k, v in data.items():
+            if isinstance(v, torch.Tensor):
+                data[k] = v.cuda()
+        return data
 
     def end_of_iter(self, loss_dicts, output_list, model):
         opt = self.opt
@@ -51,7 +56,7 @@ class Trainer():
         ############## Display results and errors ##########
         ### print out errors        
         if is_master() and total_steps % print_freq == 0:
-            t = (time.time() - self.iter_start_time) / print_freq            
+            t = (time.time() - self.iter_start_time) / print_freq / get_world_size()
             errors = {k: v.data.item() if not isinstance(v, int) else v for k, v in loss_dicts.items()}
             self.visualizer.print_current_errors(epoch, epoch_iter, errors, t)
             self.visualizer.plot_current_errors(errors, total_steps)
@@ -92,7 +97,7 @@ def save_all_tensors(opt, output_list, model):
     fake_image, fake_raw_image, warped_image, flow, weight, atn_score, \
         target_label, target_image, flow_gt, conf_gt, ref_label, ref_image = output_list
 
-    visual_list = [('target_label', util.visualize_label(opt, target_label, model)),                   
+    visual_list = [('target_label', util.visualize_label(opt, target_label, model)),
                    ('synthesized_image', util.tensor2im(fake_image)),
                    ('target_image', util.tensor2im(target_image)),
                    ('ref_image', util.tensor2im(ref_image, tile=True)),
