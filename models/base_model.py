@@ -266,12 +266,7 @@ class BaseModel(torch.nn.Module):
             self.lossCollector.tD = min(opt.n_frames_D, opt.n_frames_G)              
             params = list(self.netG.parameters())            
             if self.refine_face: params += list(self.netGf.parameters())
-
-            new_lr = self.old_lr / 10
-            self.opt.lr /= 10
-            Visualizer.vis_print(self.opt, 'update learning rate: %f -> %f' % (self.old_lr, new_lr))            
             self.optimizer_G = self.get_optimizer(params, for_discriminator=False)
-            self.old_lr = new_lr
             
             # temporal discriminator
             self.netDT = networks.define_D(opt, opt.output_nc * self.lossCollector.tD, opt.ndf, opt.n_layers_D, opt.norm_D, 'n_layers',

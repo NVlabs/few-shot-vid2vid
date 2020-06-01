@@ -33,8 +33,6 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--n_frames_D', type=int, default=2, help='number of frames to feed into temporal discriminator')
         parser.add_argument('--n_frames_total', type=int, default=2, help='the overall number of frames in a sequence to train with')
         parser.add_argument('--max_t_step', type=int, default=4, help='max spacing between neighboring sampled frames. If greater than 1, the network may randomly skip frames during training.')
-        parser.add_argument('--lambda_T', type=float, default=10.0, help='weight for temporal loss')
-        parser.add_argument('--lambda_F', type=float, default=10.0, help='weight for flow loss')        
 
         self.isTrain = True
         return parser
