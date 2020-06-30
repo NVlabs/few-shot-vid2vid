@@ -89,6 +89,7 @@ class FewshotPoseDataset(BaseDataset):
         else:            
             img_paths, op_paths, dp_paths = self.img_paths, self.op_paths, self.dp_paths
             ref_img_paths, ref_op_paths, ref_dp_paths = self.ref_img_paths, self.ref_op_paths, self.ref_dp_paths
+            ppl_indices = ref_ppl_indices = None
         
         ### setting parameters
         # n_frames_total: # of frames to train
