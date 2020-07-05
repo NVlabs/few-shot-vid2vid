@@ -11,7 +11,9 @@ import torch.nn.functional as F
 import torch.nn.utils.spectral_norm as sn
 
 from models.networks.base_network import batch_conv
-from models.networks.sync_batchnorm import SynchronizedBatchNorm2d
+# from models.networks.sync_batchnorm import SynchronizedBatchNorm2d
+from apex.parallel import SyncBatchNorm as SynchronizedBatchNorm2d
+
 
 class SPADE(nn.Module):
     def __init__(self, norm_nc, hidden_nc=0, norm='batch', ks=3, params_free=False):
@@ -30,7 +32,7 @@ class SPADE(nn.Module):
         if 'batch' in norm:
             self.norm = SynchronizedBatchNorm2d(norm_nc, affine=False)
         else:
-            self.norm = nn.InstanceNorm2d(norm_nc, affine=False)
+            self.norm = nn.InstanceNorm2d(norm_nc, affine=False, eps=0.1)
 
     def forward(self, x, maps, weights=None):
         if not isinstance(maps, list): maps = [maps]
@@ -45,7 +47,7 @@ class SPADE(nn.Module):
             else:
                 j = min(i, len(weights[0])-1)
                 gamma = batch_conv(m, weights[0][j])
-                beta = batch_conv(m, weights[1][j])
+                beta = batch_conv(m, weights[1][j])            
             out = out * (1 + gamma) + beta
         return out
         
@@ -77,7 +79,7 @@ def get_nonspade_norm_layer(opt, norm_type='instance'):
         elif subnorm_type == 'syncbatch':
             norm_layer = SynchronizedBatchNorm2d(get_out_channel(layer), affine=True)
         elif subnorm_type == 'instance':
-            norm_layer = nn.InstanceNorm2d(get_out_channel(layer), affine=True)
+            norm_layer = nn.InstanceNorm2d(get_out_channel(layer), affine=True, eps=0.1)
         else:
             raise ValueError('normalization layer %s is not recognized' % subnorm_type)
 

@@ -49,6 +49,7 @@ def generalNorm(norm):
     norm = get_norm(norm)
     class NormalNorm(norm):
         def __init__(self, *args, hidden_nc=0, norm='', ks=1, params_free=False, **kwargs):
+            kwargs['eps'] = 0.1
             super(NormalNorm, self).__init__(*args, **kwargs)            
         def forward(self, input, label=None, weight=None):
             return super(NormalNorm, self).forward(input)
@@ -60,7 +61,7 @@ class SPADEConv2d(nn.Module):
         self.conv = sn(nn.Conv2d(fin, fout, kernel_size=kernel_size, stride=stride, padding=padding))        
 
         Norm = generalNorm(norm)
-        self.bn = Norm(fout, hidden_nc=hidden_nc, norm=norm, ks=3)        
+        self.bn = Norm(fout, hidden_nc=hidden_nc, norm=norm, ks=3)
 
     def forward(self, x, label=None):      
         x = self.conv(x)
