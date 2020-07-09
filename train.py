@@ -19,7 +19,7 @@ from util.distributed import master_only_print as print
 def train():
     opt = TrainOptions().parse()
 
-    if opt.distributed:        
+    if opt.distributed:
         init_dist()        
         print('batch size per GPU: %d' % opt.batchSize)
     torch.backends.cudnn.benchmark = True

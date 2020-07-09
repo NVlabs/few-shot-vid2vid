@@ -53,7 +53,7 @@ class BaseOptions():
         parser.add_argument('--netG', type=str, default='fewshot', help='selects model to use for netG')
         parser.add_argument('--n_downsample_G', type=int, default=5, help='# of downsamplings in netG')        
         parser.add_argument('--ngf', type=int, default=32, help='# of gen filters in first conv layer')
-        parser.add_argument('--norm_G', type=str, default='spectralspadeinstance', help='instance normalization or batch normalization')
+        parser.add_argument('--norm_G', type=str, default='spectralspadesyncbatch', help='instance normalization or batch normalization')
         parser.add_argument('--conv_ks', type=int, default=3, help='filter size for convolution in main branch')
         parser.add_argument('--embed_ks', type=int, default=1, help='filter size for convolution in embedding network')
         parser.add_argument('--spade_ks', type=int, default=1, help='filter size for convolution in SPADE')
@@ -77,7 +77,7 @@ class BaseOptions():
         parser.add_argument('--n_downsample_F', type=int, default=3, help='number of downsamplings in flow network')
         parser.add_argument('--nff', type=int, default=32, help='# of gen filters in first conv layer')
         parser.add_argument('--n_blocks_F', type=int, default=6, help='number of residual blocks in flow network')
-        parser.add_argument('--norm_F', type=str, default='spectralinstance', help='instance normalization or batch normalization')
+        parser.add_argument('--norm_F', type=str, default='spectralsyncbatch', help='instance normalization or batch normalization')
         parser.add_argument('--flow_multiplier', type=int, default=20, help='flow output multiplier')        
 
         parser.add_argument('--spade_combine', action='store_true', help='use SPADE to combine with warped image instead of linear combination')

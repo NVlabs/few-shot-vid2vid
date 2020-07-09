@@ -48,8 +48,7 @@ def generalNorm(norm):
             return nn.BatchNorm2d
     norm = get_norm(norm)
     class NormalNorm(norm):
-        def __init__(self, *args, hidden_nc=0, norm='', ks=1, params_free=False, **kwargs):
-            kwargs['eps'] = 0.1
+        def __init__(self, *args, hidden_nc=0, norm='', ks=1, params_free=False, **kwargs):            
             super(NormalNorm, self).__init__(*args, **kwargs)            
         def forward(self, input, label=None, weight=None):
             return super(NormalNorm, self).forward(input)
