@@ -150,7 +150,7 @@ def run_densepose_cmd(args, video_idx):
     cmd = 'python2 tools/infer_simple.py ' \
           '--cfg configs/DensePose_ResNet101_FPN_s1x-e2e.yaml ' \
           '--wts https://dl.fbaipublicfiles.com/densepose/DensePose_ResNet101_FPN_s1x-e2e.pkl ' \
-          '--output-dir $s $s' % (dp_dir, img_dir)
+          '--output-dir %s %s' % (dp_dir, img_dir)
     # cmd = 'python apply_net.py show configs/densepose_rcnn_R_101_FPN_s1x.yaml ' \
     #       'densepose_rcnn_R_101_FPN_s1x.pkl %s dp_segm,dp_u,dp_v --output %s' \
     #       % (img_dir, dp_dir)
