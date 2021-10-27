@@ -18,10 +18,8 @@ Copyright (C) 2019 NVIDIA Corporation. All rights reserved.
 
 This work is made available under the Nvidia Source Code License (1-Way Commercial). To view a copy of this license, visit https://nvlabs.github.io/few-shot-vid2vid/License.txt
 
-The code is released for academic research use only. For commercial use, please contact [researchinquiries@nvidia.com](researchinquiries@nvidia.com).
-
-For press and other inquiries, please contact [Hector Marinez](hmarinez@nvidia.com)
-
+The code is released for academic research use only.
+For business inquiries, please visit our website and submit the form: [NVIDIA Research Licensing](https://www.nvidia.com/en-us/research/inquiries)
 
 ## Example Results
 - Dance Videos
