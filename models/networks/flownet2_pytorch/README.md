@@ -23,7 +23,7 @@ A batchnorm version for each network is also available.
 
 ## Custom layers
 
-`FlowNet2` or `FlowNet2C*` achitectures rely on custom layers `Resample2d` or `Correlation`. <br />
+`FlowNet2` or `FlowNet2C*` architectures rely on custom layers `Resample2d` or `Correlation`. <br />
 A pytorch implementation of these layers with cuda kernels are available at [./networks](./networks). <br />
 Note : Currently, half precision kernels are not available for these layers.
 
